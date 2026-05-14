@@ -199,7 +199,7 @@ function GalleryScreen({ user, onOpen, onNew, onLogout }: { user: User; onOpen: 
   const onDragStart = (sessionId: string) => setDragSessionId(sessionId);
   const onDragEnd = () => { setDragSessionId(null); setDragOverFolderId(null); };
   const onDragOverFolder = (folderId: string | null, e: React.DragEvent) => { e.preventDefault(); setDragOverFolderId(folderId ?? "uncategorized"); };
-  const onDropFolder = (folderId: string | null) => { if (dragSessionId) moveToFolder(dragSessionId, folderId); setDragOverFolderId(null); };
+  const onDropFolder = (folderId: string | null) => { if (dragSessionId) moveToFolder(dragSessionId, folderId); setDragOverFolderId(null); setDragSessionId(null); };
 
   const toggleFolder = (id: string) => setExpandedFolders(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const dateStr = (s: NoteSession) => new Date(s.created_at).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" });
@@ -291,11 +291,9 @@ function GalleryScreen({ user, onOpen, onNew, onLogout }: { user: User; onOpen: 
         </div>
       )}
 
-      {dragSessionId && <div className="drag-hint">폴더 헤더로 드래그해서 이동할 수 있어요</div>}
-
       <div className="gallery-content">
         {loading ? <div className="sessions-empty" style={{ marginTop: "4rem" }}>불러오는 중...</div>
-          : sessions.length === 0 ? (
+          : sessions.length === 0 && folders.length === 0 ? (
             <div className="sessions-empty" style={{ marginTop: "4rem" }}>
               <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>📝</div>
               <div>아직 저장된 필기가 없어요</div>
