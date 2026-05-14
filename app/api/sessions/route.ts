@@ -21,12 +21,12 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const { userId, title, folder, sections } = await req.json();
+  const { userId, title, folderId, sections } = await req.json();
   if (!userId || !sections?.length) return NextResponse.json({ error: "데이터 부족" }, { status: 400 });
 
   const { data: session, error: sessionError } = await supabaseAdmin
     .from("note_sessions")
-    .insert({ user_id: userId, title: title || "제목 없음", folder: folder || "" })
+    .insert({ user_id: userId, title: title || "제목 없음", folder: "", folder_id: folderId || null })
     .select("id").single();
   if (sessionError) return NextResponse.json({ error: sessionError.message }, { status: 500 });
 
@@ -37,6 +37,29 @@ export async function POST(req: NextRequest) {
   const { error: sectionsError } = await supabaseAdmin.from("sections").insert(sectionRows);
   if (sectionsError) return NextResponse.json({ error: sectionsError.message }, { status: 500 });
   return NextResponse.json({ sessionId: session.id });
+}
+
+// 기존 세션 덮어쓰기 (수정)
+export async function PUT(req: NextRequest) {
+  const { sessionId, title, folderId, sections } = await req.json();
+  if (!sessionId || !sections?.length) return NextResponse.json({ error: "데이터 부족" }, { status: 400 });
+
+  // 제목/폴더 업데이트
+  const { error: updateError } = await supabaseAdmin
+    .from("note_sessions")
+    .update({ title: title || "제목 없음", folder_id: folderId || null })
+    .eq("id", sessionId);
+  if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+
+  // 기존 섹션 삭제 후 재삽입
+  await supabaseAdmin.from("sections").delete().eq("session_id", sessionId);
+  const sectionRows = sections.map((s: any, i: number) => ({
+    session_id: sessionId, latex: s.latex, summary: s.summary || "",
+    image_url: s.imageUrl || "", order_index: i,
+  }));
+  const { error: sectionsError } = await supabaseAdmin.from("sections").insert(sectionRows);
+  if (sectionsError) return NextResponse.json({ error: sectionsError.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(req: NextRequest) {
