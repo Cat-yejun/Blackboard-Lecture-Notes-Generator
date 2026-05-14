@@ -2,7 +2,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import katex from "katex";
 
-// ── Types ────────────────────────────────────────────────────────
 interface Section { id: string; latex: string; summary: string; imageUrl: string; createdAt: Date; }
 interface User { id: string; username: string; }
 interface Folder { id: string; name: string; }
@@ -100,6 +99,37 @@ function LoginPanel({ onLogin }: { onLogin: (user: User) => void }) {
   );
 }
 
+// ── Account Dropdown ─────────────────────────────────────────────
+function AccountDropdown({ user, onLogout }: { user: User; onLogout: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button className="user-badge" onClick={() => setOpen(v => !v)}>👤 {user.username} ▾</button>
+      {open && (
+        <div className="account-dropdown">
+          <div className="account-dropdown-header">
+            <div className="account-avatar">{user.username[0].toUpperCase()}</div>
+            <div>
+              <div className="account-name">{user.username}</div>
+              <div className="account-sub">내 계정</div>
+            </div>
+          </div>
+          <div className="account-dropdown-divider" />
+          <button className="account-dropdown-item danger" onClick={() => { setOpen(false); onLogout(); }}>
+            🚪 로그아웃
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── PDF Options ──────────────────────────────────────────────────
 function PdfOptionsModal({ onExport, onClose }: { onExport: (opts: { includeSummary: boolean; includeImage: boolean }) => void; onClose: () => void; }) {
   const [includeSummary, setIncludeSummary] = useState(true);
@@ -117,12 +147,7 @@ function PdfOptionsModal({ onExport, onClose }: { onExport: (opts: { includeSumm
 }
 
 // ── Gallery Screen ───────────────────────────────────────────────
-function GalleryScreen({ user, onOpen, onNew, onLogout }: {
-  user: User;
-  onOpen: (session: NoteSession) => void;
-  onNew: () => void;
-  onLogout: () => void;
-}) {
+function GalleryScreen({ user, onOpen, onNew, onLogout }: { user: User; onOpen: (s: NoteSession) => void; onNew: () => void; onLogout: () => void; }) {
   const [sessions, setSessions] = useState<NoteSession[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -131,18 +156,14 @@ function GalleryScreen({ user, onOpen, onNew, onLogout }: {
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [movingSession, setMovingSession] = useState<string | null>(null);
+  const [dragSessionId, setDragSessionId] = useState<string | null>(null);
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
 
   const load = async () => {
-    const [sRes, fRes] = await Promise.all([
-      fetch(`/api/sessions?userId=${user.id}`),
-      fetch(`/api/folders?userId=${user.id}`),
-    ]);
+    const [sRes, fRes] = await Promise.all([fetch(`/api/sessions?userId=${user.id}`), fetch(`/api/folders?userId=${user.id}`)]);
     const [sData, fData] = await Promise.all([sRes.json(), fRes.json()]);
-    setSessions(sData.sessions || []);
-    setFolders(fData.folders || []);
-    setLoading(false);
+    setSessions(sData.sessions || []); setFolders(fData.folders || []); setLoading(false);
   };
-
   useEffect(() => { load(); }, [user.id]);
 
   const deleteSession = async (sessionId: string, e: React.MouseEvent) => {
@@ -168,52 +189,71 @@ function GalleryScreen({ user, onOpen, onNew, onLogout }: {
   };
 
   const moveToFolder = async (sessionId: string, folderId: string | null) => {
-    await fetch("/api/sessions", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, folderId, sections: [{ latex: "", summary: "", imageUrl: "" }] }) });
+    // 낙관적 업데이트
     setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, folder_id: folderId } : s));
     setMovingSession(null);
+    await fetch("/api/sessions", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, folderId, sections: [{ latex: " ", summary: "", imageUrl: "" }] }) });
   };
 
+  // 드래그 앤 드롭
+  const onDragStart = (sessionId: string) => setDragSessionId(sessionId);
+  const onDragEnd = () => { setDragSessionId(null); setDragOverFolderId(null); };
+  const onDragOverFolder = (folderId: string | null, e: React.DragEvent) => { e.preventDefault(); setDragOverFolderId(folderId ?? "uncategorized"); };
+  const onDropFolder = (folderId: string | null) => { if (dragSessionId) moveToFolder(dragSessionId, folderId); setDragOverFolderId(null); };
+
   const toggleFolder = (id: string) => setExpandedFolders(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-
   const dateStr = (s: NoteSession) => new Date(s.created_at).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" });
-
   const uncategorized = sessions.filter(s => !s.folder_id);
   const byFolder = (folderId: string) => sessions.filter(s => s.folder_id === folderId);
 
   const SessionCard = ({ s }: { s: NoteSession }) => (
-    <div className="gallery-card" onClick={() => onOpen(s)}>
+    <div className="gallery-card" draggable onClick={() => onOpen(s)}
+      onDragStart={() => onDragStart(s.id)} onDragEnd={onDragEnd}
+      style={{ opacity: dragSessionId === s.id ? 0.4 : 1 }}>
       <div className="gallery-card-icon">📄</div>
       <div className="gallery-card-title">{s.title}</div>
       <div className="gallery-card-date">{dateStr(s)}</div>
       <div className="gallery-card-btns">
-        <button className="gallery-card-del gallery-card-move" onClick={e => { e.stopPropagation(); setMovingSession(s.id); }} title="폴더 이동">📁</button>
-        <button className="gallery-card-del" onClick={e => deleteSession(s.id, e)} title="삭제">✕</button>
+        <button className="card-action-btn" onClick={e => { e.stopPropagation(); setMovingSession(s.id); }} title="폴더 이동">📁</button>
+        <button className="card-action-btn card-del-btn" onClick={e => deleteSession(s.id, e)} title="삭제">✕</button>
       </div>
     </div>
   );
 
+  const FolderHeader = ({ folderId, label, count, onDelete }: { folderId: string | null; label: string; count: number; onDelete?: (e: React.MouseEvent) => void; }) => (
+    <div className={`gallery-folder-header ${dragOverFolderId === (folderId ?? "uncategorized") ? "drag-over" : ""}`}
+      onClick={() => toggleFolder(folderId ?? "uncategorized")}
+      onDragOver={e => onDragOverFolder(folderId, e)}
+      onDragLeave={() => setDragOverFolderId(null)}
+      onDrop={() => onDropFolder(folderId)}>
+      <span>{expandedFolders.has(folderId ?? "uncategorized") ? "▼" : "▶"}</span>
+      <span>{label}</span>
+      <span className="folder-count">{count}개</span>
+      {onDelete && <button className="card-action-btn card-del-btn" style={{ marginLeft: "auto" }} onClick={onDelete}>✕</button>}
+    </div>
+  );
+
   const SessionRow = ({ s }: { s: NoteSession }) => (
-    <div className="tree-file" onClick={() => onOpen(s)}>
+    <div className="tree-file" draggable onClick={() => onOpen(s)} onDragStart={() => onDragStart(s.id)} onDragEnd={onDragEnd} style={{ opacity: dragSessionId === s.id ? 0.4 : 1 }}>
       <span className="tree-file-icon">📄</span>
       <span className="tree-file-name">{s.title}</span>
       <span className="tree-file-date">{dateStr(s)}</span>
-      <button className="gallery-card-del" style={{ opacity: 1, position: "static" }} onClick={e => { e.stopPropagation(); setMovingSession(s.id); }} title="폴더 이동">📁</button>
-      <button className="gallery-card-del" style={{ opacity: 1, position: "static" }} onClick={e => deleteSession(s.id, e)}>✕</button>
+      <button className="card-action-btn" onClick={e => { e.stopPropagation(); setMovingSession(s.id); }}>📁</button>
+      <button className="card-action-btn card-del-btn" onClick={e => deleteSession(s.id, e)}>✕</button>
     </div>
   );
 
   const SessionTimeline = ({ s }: { s: NoteSession }) => (
-    <div className="timeline-item" onClick={() => onOpen(s)}>
+    <div className="timeline-item" draggable onClick={() => onOpen(s)} onDragStart={() => onDragStart(s.id)} onDragEnd={onDragEnd} style={{ opacity: dragSessionId === s.id ? 0.4 : 1 }}>
       <div className="timeline-dot" />
       <div className="timeline-item-content"><span className="timeline-item-title">{s.title}</span><span className="timeline-item-date">{dateStr(s)}</span></div>
-      <button className="gallery-card-del" style={{ opacity: 1, position: "static" }} onClick={e => { e.stopPropagation(); setMovingSession(s.id); }} title="폴더 이동">📁</button>
-      <button className="gallery-card-del" style={{ opacity: 1, position: "static" }} onClick={e => deleteSession(s.id, e)}>✕</button>
+      <button className="card-action-btn" onClick={e => { e.stopPropagation(); setMovingSession(s.id); }}>📁</button>
+      <button className="card-action-btn card-del-btn" onClick={e => deleteSession(s.id, e)}>✕</button>
     </div>
   );
 
   return (
     <div className="gallery-screen">
-      {/* 폴더 이동 모달 */}
       {movingSession && (
         <div className="modal-overlay" onClick={() => setMovingSession(null)}>
           <div className="save-modal" onClick={e => e.stopPropagation()}>
@@ -231,14 +271,14 @@ function GalleryScreen({ user, onOpen, onNew, onLogout }: {
           <div className="header-icon" style={{ width: 32, height: 32, fontSize: "1rem" }}>📐</div>
           <div><div style={{ fontWeight: 800, fontSize: "1rem" }}>칠판 필기 변환기</div><div style={{ fontSize: "0.7rem", color: "rgba(232,228,217,0.4)", fontFamily: "JetBrains Mono, monospace" }}>내 필기 갤러리</div></div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
           <div className="view-toggle">
             <button className={view === "grid" ? "active" : ""} onClick={() => setView("grid")} title="카드형">⊞</button>
             <button className={view === "tree" ? "active" : ""} onClick={() => setView("tree")} title="폴더형">☰</button>
             <button className={view === "timeline" ? "active" : ""} onClick={() => setView("timeline")} title="타임라인">≡</button>
           </div>
-          <button className="export-btn" onClick={() => setShowNewFolder(true)}>📁 새 폴더</button>
-          <span className="user-badge" onClick={onLogout} title="로그아웃">👤 {user.username}</span>
+          <button className="export-btn" onClick={() => setShowNewFolder(v => !v)}>📁 새 폴더</button>
+          <AccountDropdown user={user} onLogout={onLogout} />
         </div>
       </div>
 
@@ -251,6 +291,8 @@ function GalleryScreen({ user, onOpen, onNew, onLogout }: {
         </div>
       )}
 
+      {dragSessionId && <div className="drag-hint">폴더 헤더로 드래그해서 이동할 수 있어요</div>}
+
       <div className="gallery-content">
         {loading ? <div className="sessions-empty" style={{ marginTop: "4rem" }}>불러오는 중...</div>
           : sessions.length === 0 ? (
@@ -261,27 +303,15 @@ function GalleryScreen({ user, onOpen, onNew, onLogout }: {
             </div>
           ) : view === "grid" ? (
             <div>
-              {folders.map(f => {
-                const list = byFolder(f.id);
-                return (
-                  <div key={f.id} className="gallery-folder-section">
-                    <div className="gallery-folder-header" onClick={() => toggleFolder(f.id)}>
-                      <span>{expandedFolders.has(f.id) ? "▼" : "▶"}</span>
-                      <span>📁 {f.name}</span>
-                      <span style={{ fontSize: "0.72rem", color: "rgba(232,228,217,0.3)", fontFamily: "JetBrains Mono, monospace" }}>{list.length}개</span>
-                      <button className="gallery-card-del" style={{ opacity: 1, position: "static", marginLeft: "auto" }} onClick={e => deleteFolder(f.id, e)}>✕</button>
-                    </div>
-                    {expandedFolders.has(f.id) && <div className="gallery-card-grid">{list.map(s => <SessionCard key={s.id} s={s} />)}</div>}
-                  </div>
-                );
-              })}
+              {folders.map(f => (
+                <div key={f.id} className="gallery-folder-section">
+                  <FolderHeader folderId={f.id} label={`📁 ${f.name}`} count={byFolder(f.id).length} onDelete={e => deleteFolder(f.id, e)} />
+                  {expandedFolders.has(f.id) && <div className="gallery-card-grid">{byFolder(f.id).map(s => <SessionCard key={s.id} s={s} />)}</div>}
+                </div>
+              ))}
               {uncategorized.length > 0 && (
                 <div className="gallery-folder-section">
-                  <div className="gallery-folder-header" onClick={() => toggleFolder("uncategorized")}>
-                    <span>{expandedFolders.has("uncategorized") ? "▼" : "▶"}</span>
-                    <span>📄 분류 없음</span>
-                    <span style={{ fontSize: "0.72rem", color: "rgba(232,228,217,0.3)", fontFamily: "JetBrains Mono, monospace" }}>{uncategorized.length}개</span>
-                  </div>
+                  <FolderHeader folderId={null} label="📄 분류 없음" count={uncategorized.length} />
                   {expandedFolders.has("uncategorized") && <div className="gallery-card-grid">{uncategorized.map(s => <SessionCard key={s.id} s={s} />)}</div>}
                 </div>
               )}
@@ -290,19 +320,23 @@ function GalleryScreen({ user, onOpen, onNew, onLogout }: {
             <div className="gallery-tree">
               {folders.map(f => (
                 <div key={f.id}>
-                  <div className="tree-folder" onClick={() => toggleFolder(f.id)}>
+                  <div className={`tree-folder ${dragOverFolderId === f.id ? "drag-over" : ""}`}
+                    onClick={() => toggleFolder(f.id)}
+                    onDragOver={e => onDragOverFolder(f.id, e)} onDragLeave={() => setDragOverFolderId(null)} onDrop={() => onDropFolder(f.id)}>
                     <span className="tree-arrow">{expandedFolders.has(f.id) ? "▼" : "▶"}</span>
                     <span className="tree-folder-icon">📁</span>
                     <span className="tree-folder-name">{f.name}</span>
                     <span className="tree-count">{byFolder(f.id).length}개</span>
-                    <button className="gallery-card-del" style={{ opacity: 1, position: "static" }} onClick={e => deleteFolder(f.id, e)}>✕</button>
+                    <button className="card-action-btn card-del-btn" onClick={e => deleteFolder(f.id, e)}>✕</button>
                   </div>
                   {expandedFolders.has(f.id) && byFolder(f.id).map(s => <SessionRow key={s.id} s={s} />)}
                 </div>
               ))}
               {uncategorized.length > 0 && (
                 <div>
-                  <div className="tree-folder" onClick={() => toggleFolder("uncategorized")}>
+                  <div className={`tree-folder ${dragOverFolderId === "uncategorized" ? "drag-over" : ""}`}
+                    onClick={() => toggleFolder("uncategorized")}
+                    onDragOver={e => onDragOverFolder(null, e)} onDragLeave={() => setDragOverFolderId(null)} onDrop={() => onDropFolder(null)}>
                     <span className="tree-arrow">{expandedFolders.has("uncategorized") ? "▼" : "▶"}</span>
                     <span className="tree-folder-icon">📄</span>
                     <span className="tree-folder-name">분류 없음</span>
@@ -316,13 +350,19 @@ function GalleryScreen({ user, onOpen, onNew, onLogout }: {
             <div className="gallery-timeline">
               {folders.map(f => byFolder(f.id).length > 0 && (
                 <div key={f.id} className="timeline-group">
-                  <div className="timeline-month">📁 {f.name}</div>
+                  <div className={`timeline-month ${dragOverFolderId === f.id ? "drag-over" : ""}`}
+                    onDragOver={e => onDragOverFolder(f.id, e)} onDragLeave={() => setDragOverFolderId(null)} onDrop={() => onDropFolder(f.id)}>
+                    📁 {f.name}
+                  </div>
                   <div className="timeline-items">{byFolder(f.id).map(s => <SessionTimeline key={s.id} s={s} />)}</div>
                 </div>
               ))}
               {uncategorized.length > 0 && (
                 <div className="timeline-group">
-                  <div className="timeline-month">📄 분류 없음</div>
+                  <div className={`timeline-month ${dragOverFolderId === "uncategorized" ? "drag-over" : ""}`}
+                    onDragOver={e => onDragOverFolder(null, e)} onDragLeave={() => setDragOverFolderId(null)} onDrop={() => onDropFolder(null)}>
+                    📄 분류 없음
+                  </div>
                   <div className="timeline-items">{uncategorized.map(s => <SessionTimeline key={s.id} s={s} />)}</div>
                 </div>
               )}
@@ -330,20 +370,13 @@ function GalleryScreen({ user, onOpen, onNew, onLogout }: {
           )
         }
       </div>
-
-      <button className="fab-btn" onClick={onNew} title="새 필기">＋</button>
+      <button className="fab-btn" onClick={onNew}>＋</button>
     </div>
   );
 }
 
 // ── Editor Screen ────────────────────────────────────────────────
-function EditorScreen({ user, session, folders, onBack, onSaved }: {
-  user: User;
-  session: NoteSession | null;
-  folders: Folder[];
-  onBack: () => void;
-  onSaved: () => void;
-}) {
+function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User; session: NoteSession | null; folders: Folder[]; onBack: () => void; onSaved: () => void; }) {
   const [image, setImage] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<{ data: string; mediaType: string } | null>(null);
   const [sections, setSections] = useState<Section[]>([]);
@@ -355,11 +388,10 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: {
   const [showPdfOptions, setShowPdfOptions] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveTitle, setSaveTitle] = useState("");
-  const [saveFolderId, setSaveFolderId] = useState<string | null>(session?.folder_id || null);
+  const [saveFolderId, setSaveFolderId] = useState<string | null>(null);
   const [saveLoading, setSaveLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
-
   const today = new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\. /g, "-").replace(".", "");
 
   useEffect(() => {
@@ -367,11 +399,10 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: {
     setSaveFolderId(session?.folder_id || null);
     if (session) {
       setLoadingSession(true);
-      fetch(`/api/sessions?userId=${user.id}&sessionId=${session.id}`)
-        .then(r => r.json()).then(d => {
-          setSections((d.sections || []).map((s: any) => ({ id: s.id, latex: s.latex, summary: s.summary || "", imageUrl: s.image_url || "", createdAt: new Date(s.created_at) })));
-          setLoadingSession(false);
-        });
+      fetch(`/api/sessions?userId=${user.id}&sessionId=${session.id}`).then(r => r.json()).then(d => {
+        setSections((d.sections || []).map((s: any) => ({ id: s.id, latex: s.latex, summary: s.summary || "", imageUrl: s.image_url || "", createdAt: new Date(s.created_at) })));
+        setLoadingSession(false);
+      });
     }
   }, [session]);
 
@@ -413,47 +444,29 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: {
     if (!sections.length) return;
     setSaveLoading(true);
     try {
-      let res;
-      if (session) {
-        // 기존 파일 수정
-        res = await fetch("/api/sessions", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: session.id, title: saveTitle, folderId: saveFolderId, sections }) });
-      } else {
-        // 새 파일 저장
-        res = await fetch("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: user.id, title: saveTitle, folderId: saveFolderId, sections }) });
-      }
+      const res = session
+        ? await fetch("/api/sessions", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: session.id, title: saveTitle, folderId: saveFolderId, sections }) })
+        : await fetch("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: user.id, title: saveTitle, folderId: saveFolderId, sections }) });
       const data = await res.json();
       if (res.ok) { notify("저장 완료!"); setShowSaveModal(false); onSaved(); }
       else notify("저장 실패: " + data.error);
     } catch { notify("저장 실패"); } finally { setSaveLoading(false); }
   };
 
-  const exportLatex = () => {
-    const doc = `\\documentclass{article}\n\\usepackage{amsmath,amssymb}\n\\usepackage[utf8]{inputenc}\n\\title{${saveTitle}}\n\\date{${new Date().toLocaleDateString("ko-KR")}}\n\\begin{document}\n\\maketitle\n${sections.map((s, i) => `\\section*{섹션 ${i + 1}${s.summary ? ` — ${s.summary}` : ""}}\n${s.latex}`).join("\n\n")}\n\\end{document}`;
-    Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([doc], { type: "text/plain" })), download: `${saveTitle}.tex` }).click();
-    notify("LaTeX 저장됨!");
-  };
-
-  const exportMarkdown = () => {
-    const doc = `# ${saveTitle}\n_${new Date().toLocaleDateString("ko-KR")}_\n\n` + sections.map((s, i) => `## 섹션 ${i + 1}${s.summary ? ` — ${s.summary}` : ""}\n\n${s.latex}`).join("\n\n---\n\n");
-    Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([doc], { type: "text/plain" })), download: `${saveTitle}.md` }).click();
-    notify("Markdown 저장됨!");
-  };
-
+  const exportLatex = () => { const doc = `\\documentclass{article}\n\\usepackage{amsmath,amssymb}\n\\title{${saveTitle}}\n\\date{${new Date().toLocaleDateString("ko-KR")}}\n\\begin{document}\n\\maketitle\n${sections.map((s, i) => `\\section*{섹션 ${i + 1}}\n${s.latex}`).join("\n\n")}\n\\end{document}`; Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([doc], { type: "text/plain" })), download: `${saveTitle}.tex` }).click(); notify("LaTeX!"); };
+  const exportMarkdown = () => { const doc = `# ${saveTitle}\n\n` + sections.map((s, i) => `## 섹션 ${i + 1}\n\n${s.latex}`).join("\n\n---\n\n"); Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([doc], { type: "text/plain" })), download: `${saveTitle}.md` }).click(); notify("Markdown!"); };
   const exportPDF = ({ includeSummary, includeImage }: { includeSummary: boolean; includeImage: boolean }) => {
-    const win = window.open("", "_blank");
-    if (!win) { notify("팝업 차단됨"); return; }
+    const win = window.open("", "_blank"); if (!win) { notify("팝업 차단됨"); return; }
     const katexCSS = Array.from(document.styleSheets).map(s => { try { return s.href; } catch { return null; } }).filter(Boolean).find(h => h && h.includes("katex"));
-    const sectionsHtml = sections.map((s, i) => `<div class="section"><div class="section-title">섹션 ${i + 1}${s.summary ? ` — ${s.summary}` : ""}</div>${includeSummary && s.summary ? `<div class="summary">${s.summary}</div>` : ""}${includeImage && s.imageUrl ? `<img src="${s.imageUrl}" class="section-img" />` : ""}<div class="content">${s.latex.split("\n").map(l => `<div>${l || "<br>"}</div>`).join("")}</div>${i < sections.length - 1 ? "<hr>" : ""}</div>`).join("");
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${saveTitle}</title>${katexCSS ? `<link rel="stylesheet" href="${katexCSS}">` : ""}<style>body{font-family:sans-serif;padding:40px;max-width:800px;margin:0 auto;color:#1a1a1a}h1{font-size:1.6rem}.date{color:#888;font-size:.85rem;margin-bottom:2rem}.section{margin-bottom:2.5rem;page-break-inside:avoid}.section-title{font-weight:700;border-left:3px solid #34d399;padding-left:.75rem;margin-bottom:.5rem}.summary{font-size:.82rem;color:#666;background:#f5f5f5;padding:.5rem .75rem;border-radius:6px;margin-bottom:.75rem}.section-img{max-width:100%;border-radius:8px;margin-bottom:.75rem}.content{line-height:1.9}.katex-display{margin:1rem 0}hr{border:none;border-top:1px solid #eee;margin:2rem 0}</style></head><body><h1>${saveTitle}</h1><div class="date">${new Date().toLocaleDateString("ko-KR")}</div>${sectionsHtml}</body></html>`);
+    const html = sections.map((s, i) => `<div class="section"><div class="st">섹션 ${i+1}${s.summary ? ` — ${s.summary}` : ""}</div>${includeSummary && s.summary ? `<div class="sum">${s.summary}</div>` : ""}${includeImage && s.imageUrl ? `<img src="${s.imageUrl}" style="max-width:100%;border-radius:8px;margin-bottom:.75rem"/>` : ""}<div>${s.latex.split("\n").map(l => `<div>${l||"<br>"}</div>`).join("")}</div>${i<sections.length-1?"<hr>":""}</div>`).join("");
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${saveTitle}</title>${katexCSS?`<link rel="stylesheet" href="${katexCSS}">`:""}<style>body{font-family:sans-serif;padding:40px;max-width:800px;margin:0 auto;color:#1a1a1a}h1{font-size:1.6rem}.date{color:#888;font-size:.85rem;margin-bottom:2rem}.section{margin-bottom:2.5rem;page-break-inside:avoid}.st{font-weight:700;border-left:3px solid #34d399;padding-left:.75rem;margin-bottom:.5rem}.sum{font-size:.82rem;color:#666;background:#f5f5f5;padding:.5rem .75rem;border-radius:6px;margin-bottom:.75rem}.katex-display{margin:1rem 0}hr{border:none;border-top:1px solid #eee;margin:2rem 0}</style></head><body><h1>${saveTitle}</h1><div class="date">${new Date().toLocaleDateString("ko-KR")}</div>${html}</body></html>`);
     win.document.close(); win.onload = () => { win.focus(); win.print(); };
   };
-
-  const copyAll = () => { navigator.clipboard.writeText(sections.map(s => s.latex).join("\n\n---\n\n")); notify("전체 복사됨!"); };
+  const copyAll = () => { navigator.clipboard.writeText(sections.map(s => s.latex).join("\n\n---\n\n")); notify("복사됨!"); };
 
   return (
     <div className="app">
       {showPdfOptions && <PdfOptionsModal onExport={exportPDF} onClose={() => setShowPdfOptions(false)} />}
-
       {showSaveModal && (
         <div className="modal-overlay" onClick={() => setShowSaveModal(false)}>
           <div className="save-modal" onClick={e => e.stopPropagation()}>
@@ -462,8 +475,7 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: {
               <label style={{ fontSize: "0.8rem", color: "rgba(232,228,217,0.5)", fontFamily: "JetBrains Mono, monospace" }}>파일 이름</label>
               <input className="login-input" value={saveTitle} onChange={e => setSaveTitle(e.target.value)} placeholder="예: 2026-05-14 미적분학" />
               <label style={{ fontSize: "0.8rem", color: "rgba(232,228,217,0.5)", fontFamily: "JetBrains Mono, monospace" }}>폴더</label>
-              <select className="login-input" value={saveFolderId || ""} onChange={e => setSaveFolderId(e.target.value || null)}
-                style={{ cursor: "pointer" }}>
+              <select className="login-input" value={saveFolderId || ""} onChange={e => setSaveFolderId(e.target.value || null)} style={{ cursor: "pointer" }}>
                 <option value="">폴더 없음</option>
                 {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select>
@@ -496,13 +508,12 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: {
         <div className="left-panel">
           <div ref={dropRef} className="drop-zone"
             onClick={() => fileRef.current?.click()}
-            onDragOver={(e) => { e.preventDefault(); dropRef.current?.classList.add("drag-over"); }}
+            onDragOver={e => { e.preventDefault(); dropRef.current?.classList.add("drag-over"); }}
             onDragLeave={() => dropRef.current?.classList.remove("drag-over")}
-            onDrop={(e) => { e.preventDefault(); dropRef.current?.classList.remove("drag-over"); handleFile(e.dataTransfer.files[0]); }}
-          >
+            onDrop={e => { e.preventDefault(); dropRef.current?.classList.remove("drag-over"); handleFile(e.dataTransfer.files[0]); }}>
             {image ? <img src={image} alt="미리보기" /> : <div className="drop-placeholder"><div className="drop-icon">🖼️</div><div className="drop-label">칠판 사진을 업로드하세요</div><div className="drop-sub">drag & drop · 클릭하여 선택</div></div>}
           </div>
-          <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => handleFile(e.target.files?.[0])} />
+          <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => handleFile(e.target.files?.[0])} />
           <button className="analyze-btn" onClick={analyze} disabled={!imageBase64 || loading}>
             {loading ? <><div className="spinner" />분석 중...</> : <>✨ 필기에 추가</>}
           </button>
@@ -531,18 +542,14 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: {
             <button className={`tab ${tab === "latex" ? "active" : ""}`} onClick={() => setTab("latex")}>LaTeX 소스</button>
           </div>
           <div className="result-area">
-            {loadingSession ? (
-              <div className="loading-state"><div className="loading-dots"><div className="loading-dot" /><div className="loading-dot" /><div className="loading-dot" /></div><div className="loading-text">필기 불러오는 중...</div></div>
-            ) : loading && sections.length === 0 ? (
-              <div className="loading-state"><div className="loading-dots"><div className="loading-dot" /><div className="loading-dot" /><div className="loading-dot" /></div><div className="loading-text">분석 중...</div></div>
-            ) : sections.length === 0 ? (
-              <div className="empty-state"><div className="empty-state-icon">📝</div><div className="empty-state-text">사진을 업로드하고 추가하세요</div></div>
-            ) : (
-              <div className="sections-list">
-                {loading && <div className="loading-inline"><div className="loading-dots"><div className="loading-dot" /><div className="loading-dot" /><div className="loading-dot" /></div><span className="loading-text">분석 중...</span></div>}
-                {sections.map((s, i) => <SectionBlock key={s.id} section={s} index={i} tab={tab} onDelete={() => deleteSection(s.id)} onMove={(dir) => moveSection(s.id, dir)} isFirst={i === 0} isLast={i === sections.length - 1} />)}
-              </div>
-            )}
+            {loadingSession ? <div className="loading-state"><div className="loading-dots"><div className="loading-dot" /><div className="loading-dot" /><div className="loading-dot" /></div><div className="loading-text">불러오는 중...</div></div>
+              : loading && sections.length === 0 ? <div className="loading-state"><div className="loading-dots"><div className="loading-dot" /><div className="loading-dot" /><div className="loading-dot" /></div><div className="loading-text">분석 중...</div></div>
+              : sections.length === 0 ? <div className="empty-state"><div className="empty-state-icon">📝</div><div className="empty-state-text">사진을 업로드하고 추가하세요</div></div>
+              : <div className="sections-list">
+                  {loading && <div className="loading-inline"><div className="loading-dots"><div className="loading-dot" /><div className="loading-dot" /><div className="loading-dot" /></div><span className="loading-text">분석 중...</span></div>}
+                  {sections.map((s, i) => <SectionBlock key={s.id} section={s} index={i} tab={tab} onDelete={() => deleteSection(s.id)} onMove={dir => moveSection(s.id, dir)} isFirst={i === 0} isLast={i === sections.length - 1} />)}
+                </div>
+            }
           </div>
         </div>
       </main>
@@ -560,25 +567,16 @@ export default function Home() {
   useEffect(() => { const s = localStorage.getItem("bbocr_user"); if (s) setUser(JSON.parse(s)); }, []);
 
   const handleLogin = (u: User) => {
-    setUser(u);
-    localStorage.setItem("bbocr_user", JSON.stringify(u));
-    // 로그인 후 폴더 로드
+    setUser(u); localStorage.setItem("bbocr_user", JSON.stringify(u));
     fetch(`/api/folders?userId=${u.id}`).then(r => r.json()).then(d => setFolders(d.folders || []));
   };
-
-  const handleLogout = () => { setUser(null); localStorage.removeItem("bbocr_user"); };
-
-  const openSession = (session: NoteSession) => { setCurrentSession(session); setScreen("editor"); };
+  const handleLogout = () => { setUser(null); localStorage.removeItem("bbocr_user"); setScreen("gallery"); };
+  const openSession = (s: NoteSession) => { setCurrentSession(s); setScreen("editor"); };
   const newSession = () => { setCurrentSession(null); setScreen("editor"); };
   const goBack = () => { setScreen("gallery"); setCurrentSession(null); };
-  const onSaved = () => {
-    // 폴더 목록 갱신
-    if (user) fetch(`/api/folders?userId=${user.id}`).then(r => r.json()).then(d => setFolders(d.folders || []));
-  };
+  const onSaved = () => { if (user) fetch(`/api/folders?userId=${user.id}`).then(r => r.json()).then(d => setFolders(d.folders || [])); };
 
   if (!user) return <LoginPanel onLogin={handleLogin} />;
-
   if (screen === "gallery") return <GalleryScreen user={user} onOpen={openSession} onNew={newSession} onLogout={handleLogout} />;
-
   return <EditorScreen user={user} session={currentSession} folders={folders} onBack={goBack} onSaved={onSaved} />;
 }
