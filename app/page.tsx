@@ -259,10 +259,10 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
         </div>
         <div className="cropper-body">
           <div ref={containerRef} className="cropper-container"
-            style={{ cursor: tool === "mask" ? "crosshair" : "default" }}
+            style={{ cursor: tool === "mask" ? "crosshair" : "default", touchAction: "none", userSelect: "none" }}
             onMouseDown={onContainerPointerDown} onTouchStart={onContainerPointerDown}
-            onMouseMove={onPointerMove}
-            onMouseUp={onPointerUp}
+            onMouseMove={onPointerMove} onTouchMove={e => { e.preventDefault(); onPointerMove(e); }}
+            onMouseUp={onPointerUp} onTouchEnd={onPointerUp}
             onMouseLeave={() => { setDragging(null); setIsPainting(false); }}>
             <img ref={imgRef} src={src} alt="편집" className="cropper-img"
               style={{ transform: `rotate(${rotation}deg)` }} draggable={false}
