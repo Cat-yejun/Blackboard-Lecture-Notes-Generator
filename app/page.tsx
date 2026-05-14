@@ -109,10 +109,13 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
   const [dragging, setDragging] = useState<null | "move" | "tl" | "tr" | "bl" | "br">(null);
   const [dragStart, setDragStart] = useState({ mx: 0, my: 0, crop: { x: 5, y: 5, w: 90, h: 90 } });
   const [tool, setTool] = useState<"crop" | "mask">("crop");
+  const [maskMode, setMaskMode] = useState<"rect" | "free">("rect");
   const [isPainting, setIsPainting] = useState(false);
   const [maskStart, setMaskStart] = useState({ x: 0, y: 0 });
   const [currentMask, setCurrentMask] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [freePath, setFreePath] = useState<{ x: number; y: number }[]>([]);
   const [masks, setMasks] = useState<{ x: number; y: number; w: number; h: number }[]>([]);
+  const [freeMasks, setFreeMasks] = useState<{ x: number; y: number }[][]>([]);
   const [imgLoaded, setImgLoaded] = useState(false);
 
   const getImgRect = () => {
@@ -159,7 +162,11 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
     const { clientX, clientY } = getXY(e);
     const { px, py } = getPct(clientX, clientY);
     setIsPainting(true);
-    setMaskStart({ x: px, y: py });
+    if (maskMode === "rect") {
+      setMaskStart({ x: px, y: py });
+    } else {
+      setFreePath([{ x: px, y: py }]);
+    }
   };
 
   const onPointerMove = (e: React.MouseEvent | React.TouchEvent) => {
@@ -170,8 +177,12 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
     // 마스크 드래그 중 실시간 미리보기
     if (tool === "mask" && isPainting) {
       const { px, py } = getPct(clientX, clientY);
-      const nx = Math.min(maskStart.x, px), ny = Math.min(maskStart.y, py);
-      setCurrentMask({ x: nx, y: ny, w: Math.abs(px - maskStart.x), h: Math.abs(py - maskStart.y) });
+      if (maskMode === "rect") {
+        const nx = Math.min(maskStart.x, px), ny = Math.min(maskStart.y, py);
+        setCurrentMask({ x: nx, y: ny, w: Math.abs(px - maskStart.x), h: Math.abs(py - maskStart.y) });
+      } else {
+        setFreePath(prev => [...prev, { x: px, y: py }]);
+      }
     }
 
     if (tool === "crop" && dragging) {
@@ -200,11 +211,16 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
     if (tool === "mask" && isPainting) {
       const { clientX, clientY } = getXY(e);
       const { px, py } = getPct(clientX, clientY);
-      const nx = Math.min(maskStart.x, px), ny = Math.min(maskStart.y, py);
-      const nw = Math.abs(px - maskStart.x), nh = Math.abs(py - maskStart.y);
-      if (nw > 1 && nh > 1) setMasks(prev => [...prev, { x: nx, y: ny, w: nw, h: nh }]);
+      if (maskMode === "rect") {
+        const nx = Math.min(maskStart.x, px), ny = Math.min(maskStart.y, py);
+        const nw = Math.abs(px - maskStart.x), nh = Math.abs(py - maskStart.y);
+        if (nw > 1 && nh > 1) setMasks(prev => [...prev, { x: nx, y: ny, w: nw, h: nh }]);
+        setCurrentMask(null);
+      } else {
+        if (freePath.length > 2) setFreeMasks(prev => [...prev, freePath]);
+        setFreePath([]);
+      }
       setIsPainting(false);
-      setCurrentMask(null);
     }
     setDragging(null);
   };
@@ -233,6 +249,19 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
       const mh = Math.round(m.h / crop.h * sh);
       ctx.fillStyle = "#000";
       ctx.fillRect(mx, my, mw, mh);
+    });
+    // 자유형 마스크 적용
+    freeMasks.forEach(path => {
+      if (path.length < 2) return;
+      ctx.beginPath();
+      path.forEach((pt, i) => {
+        const px2 = Math.round((pt.x - crop.x) / crop.w * sw);
+        const py2 = Math.round((pt.y - crop.y) / crop.h * sh);
+        i === 0 ? ctx.moveTo(px2, py2) : ctx.lineTo(px2, py2);
+      });
+      ctx.closePath();
+      ctx.fillStyle = "#000";
+      ctx.fill();
     });
     // 마스크 없는 원본 (저장용)
     const originalCanvas = document.createElement("canvas");
@@ -264,7 +293,12 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
         <div style={{ display: "flex", gap: "0.5rem", padding: "0.5rem 1.5rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
           <button className={`export-btn ${tool === "crop" ? "accent" : ""}`} onClick={() => setTool("crop")}>✂️ 크롭</button>
           <button className={`export-btn ${tool === "mask" ? "accent" : ""}`} onClick={() => setTool("mask")}>⬛ 가리기</button>
-          {masks.length > 0 && <button className="export-btn" onClick={() => setMasks([])} style={{ marginLeft: "auto" }}>↩ 가리기 초기화</button>}
+          {tool === "mask" && <>
+            <div style={{ width: 1, background: "rgba(255,255,255,0.1)", margin: "0 0.25rem" }} />
+            <button className={`export-btn ${maskMode === "rect" ? "accent" : ""}`} onClick={() => setMaskMode("rect")} title="사각형">⬛ 사각형</button>
+            <button className={`export-btn ${maskMode === "free" ? "accent" : ""}`} onClick={() => setMaskMode("free")} title="자유형">✏️ 자유형</button>
+          </>}
+          {(masks.length > 0 || freeMasks.length > 0) && <button className="export-btn" onClick={() => { setMasks([]); setFreeMasks([]); }} style={{ marginLeft: "auto" }}>↩ 초기화</button>}
         </div>
         <div className="cropper-body">
           <div ref={containerRef} className="cropper-container"
@@ -276,7 +310,7 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
             <img ref={imgRef} src={src} alt="편집" className="cropper-img"
               style={{ transform: `rotate(${rotation}deg)` }} draggable={false}
               onLoad={() => { setImgLoaded(true); setCrop({ x: 5, y: 5, w: 90, h: 90 }); }} />
-            {/* 마스크 오버레이 */}
+            {/* 마스크 오버레이 (사각형) */}
             {masks.map((m, i) => (
               <div key={i} style={{
                 position: "absolute",
@@ -289,6 +323,19 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
                 zIndex: 3,
               }} />
             ))}
+            {/* 자유형 마스크 오버레이 + 현재 그리는 경로 */}
+            {(freeMasks.length > 0 || freePath.length > 1) && ir.width > 0 && (
+              <svg style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 3 }}>
+                {freeMasks.map((path, i) => (
+                  <polygon key={i} fill="black" opacity="1"
+                    points={path.map(pt => `${ir.left + pt.x / 100 * ir.width},${ir.top + pt.y / 100 * ir.height}`).join(" ")} />
+                ))}
+                {freePath.length > 1 && (
+                  <polyline fill="rgba(0,0,0,0.3)" stroke="rgba(255,80,80,0.9)" strokeWidth="2" strokeDasharray="5,3"
+                    points={freePath.map(pt => `${ir.left + pt.x / 100 * ir.width},${ir.top + pt.y / 100 * ir.height}`).join(" ")} />
+                )}
+              </svg>
+            )}
             {/* 드래그 중 미리보기 박스 */}
             {currentMask && isPainting && (
               <div style={{
