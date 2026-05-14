@@ -68,3 +68,15 @@ export async function DELETE(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
+
+// PATCH: 폴더만 변경 (섹션 건드리지 않음)
+export async function PATCH(req: NextRequest) {
+  const { sessionId, folderId } = await req.json();
+  if (!sessionId) return NextResponse.json({ error: "sessionId 필요" }, { status: 400 });
+  const { error } = await supabaseAdmin
+    .from("note_sessions")
+    .update({ folder_id: folderId || null })
+    .eq("id", sessionId);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}

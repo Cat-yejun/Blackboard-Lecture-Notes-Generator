@@ -192,7 +192,8 @@ function GalleryScreen({ user, onOpen, onNew, onLogout }: { user: User; onOpen: 
     // 낙관적 업데이트
     setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, folder_id: folderId } : s));
     setMovingSession(null);
-    await fetch("/api/sessions", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, folderId, sections: [{ latex: " ", summary: "", imageUrl: "" }] }) });
+    // folderOnly: true로 섹션은 건드리지 않음
+    await fetch("/api/sessions", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, folderId }) });
   };
 
   // 드래그 앤 드롭
