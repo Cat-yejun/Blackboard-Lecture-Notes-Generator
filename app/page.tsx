@@ -403,7 +403,7 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
       fetch(`/api/sessions?userId=${user.id}&sessionId=${session.id}`).then(r => r.json()).then(d => {
         const loaded = (d.sections || []).map((s: any) => ({ id: s.id, latex: s.latex, summary: s.summary || "", imageUrl: s.image_url || "", createdAt: new Date(s.created_at) }));
         setSections(loaded);
-        savedSectionsRef.current = JSON.stringify(loaded.map(s => s.latex));
+        savedSectionsRef.current = JSON.stringify(loaded.map((s: Section) => s.latex));
         setLoadingSession(false);
       });
     }
