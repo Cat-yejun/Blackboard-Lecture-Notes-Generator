@@ -225,7 +225,7 @@ body {
   .header h1 { font-size: 1rem; }
 }
 
-/* â”€â”€ í—¤ë” ì•¡ì…˜ â”€â”€ */
+/* ── 헤더 액션 ── */
 .header { flex-wrap: wrap; gap: 0.75rem; }
 .header-text { flex: 1; }
 .header-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
@@ -248,7 +248,7 @@ body {
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-/* â”€â”€ ì¸ë„¤ì¼ ëª©ë¡ â”€â”€ */
+/* ── 썸네일 목록 ── */
 .thumb-list {
   overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;
   max-height: 280px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
@@ -278,7 +278,7 @@ body {
 .thumb-actions button:disabled { opacity: 0.2; cursor: not-allowed; }
 .del-btn:hover { background: rgba(255,107,107,0.15) !important; color: #ff9999 !important; border-color: rgba(255,107,107,0.3) !important; }
 
-/* â”€â”€ ì„¹ì…˜ ë¸”ë¡ â”€â”€ */
+/* ── 섹션 블록 ── */
 .sections-list { display: flex; flex-direction: column; gap: 2rem; }
 .section-block {
   border-left: 2px solid rgba(52,211,153,0.3);
@@ -295,14 +295,14 @@ body {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* â”€â”€ ì¸ë¼ì¸ ë¡œë”© â”€â”€ */
+/* ── 인라인 로딩 ── */
 .loading-inline {
   display: flex; align-items: center; gap: 0.75rem;
   padding: 1rem; background: rgba(255,255,255,0.02);
   border-radius: 10px; margin-bottom: 1rem;
 }
 
-/* â”€â”€ ìš”ì•½ í† ê¸€ â”€â”€ */
+/* ── 요약 토글 ── */
 .summary-toggle {
   font-size: 0.7rem; font-family: 'JetBrains Mono', monospace;
   color: rgba(52,211,153,0.7); background: rgba(52,211,153,0.08);
@@ -320,7 +320,7 @@ body {
 }
 @keyframes slideDown { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 
-/* â”€â”€ ì„¹ì…˜ í—¤ë” ì•¡ì…˜ â”€â”€ */
+/* ── 섹션 헤더 액션 ── */
 .section-header { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
 .section-actions { display: flex; gap: 0.25rem; margin-left: auto; }
 .section-actions button {
@@ -333,7 +333,7 @@ body {
 .section-actions button:disabled { opacity: 0.2; cursor: not-allowed; }
 .section-actions .del-btn:hover { background: rgba(255,107,107,0.15) !important; color: #ff9999 !important; }
 
-/* â”€â”€ ë¡œê·¸ì¸ â”€â”€ */
+/* ── 로그인 ── */
 .login-panel { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0a0a0f; }
 .login-box { width: 100%; max-width: 360px; padding: 2.5rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; display: flex; flex-direction: column; gap: 0.75rem; }
 .login-icon { font-size: 2rem; text-align: center; }
@@ -349,18 +349,18 @@ body {
 .login-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(52,211,153,0.3); }
 .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* â”€â”€ ìœ ì € ë°°ì§€ â”€â”€ */
+/* ── 유저 배지 ── */
 .user-badge { font-size: 0.75rem; font-family: 'JetBrains Mono', monospace; color: rgba(232,228,217,0.5); padding: 0.3rem 0.7rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
 .user-badge:hover { color: #ff9999; border-color: rgba(255,107,107,0.3); }
 
-/* â”€â”€ ëª¨ë‹¬ â”€â”€ */
+/* ── 모달 ── */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; display: flex; align-items: center; justify-content: center; animation: fadeIn 0.15s ease; }
 .modal-content { position: relative; max-width: 90vw; max-height: 90vh; }
 .modal-img { max-width: 90vw; max-height: 85vh; border-radius: 12px; object-fit: contain; }
 .modal-close { position: absolute; top: -12px; right: -12px; width: 28px; height: 28px; border-radius: 50%; border: none; background: rgba(255,255,255,0.15); color: #e8e4d9; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .modal-close:hover { background: rgba(255,107,107,0.4); }
 
-/* â”€â”€ ì €ìž¥ëœ ì„¸ì…˜ íŒ¨ë„ â”€â”€ */
+/* ── 저장된 세션 패널 ── */
 .sessions-panel { background: #13131a; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; width: 100%; max-width: 420px; max-height: 70vh; overflow-y: auto; display: flex; flex-direction: column; }
 .sessions-header { display: flex; align-items: center; justify-content: space-between; padding: 1.2rem 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 700; font-size: 0.95rem; position: sticky; top: 0; background: #13131a; }
 .sessions-empty { padding: 2rem; text-align: center; color: rgba(232,228,217,0.3); font-size: 0.85rem; font-family: 'JetBrains Mono', monospace; }
@@ -372,9 +372,65 @@ body {
 .session-del { width: 24px; height: 24px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04); color: rgba(232,228,217,0.4); font-size: 0.7rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
 .session-del:hover { background: rgba(255,107,107,0.15); color: #ff9999; }
 
-/* â”€â”€ PDF ì˜µì…˜ íŒ¨ë„ â”€â”€ */
+/* ── PDF 옵션 패널 ── */
 .pdf-options-panel { background: #13131a; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; width: 100%; max-width: 320px; padding-bottom: 1.5rem; }
 .pdf-option { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1.5rem; cursor: pointer; font-size: 0.88rem; color: rgba(232,228,217,0.8); }
 .pdf-option input { width: 16px; height: 16px; accent-color: #34d399; cursor: pointer; }
 .pdf-option:hover { background: rgba(255,255,255,0.03); }
 .pdf-options-panel .login-btn { margin: 0 1.5rem; width: calc(100% - 3rem); }
+
+/* ── 저장 모달 ── */
+.save-modal { background: #13131a; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; width: 100%; max-width: 380px; }
+
+/* ── 갤러리 패널 ── */
+.gallery-panel { background: #13131a; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; width: 100%; max-width: 560px; max-height: 80vh; display: flex; flex-direction: column; }
+.gallery-body { flex: 1; overflow-y: auto; padding: 1rem 1.5rem; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent; }
+.gallery-month-label { font-size: 0.72rem; font-weight: 600; color: rgba(232,228,217,0.35); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.06em; text-transform: uppercase; margin: 1rem 0 0.6rem; }
+.gallery-month-label:first-child { margin-top: 0; }
+
+/* 카드형 그리드 */
+.gallery-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-bottom: 0.5rem; }
+.gallery-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 0.9rem 0.9rem 0.75rem; cursor: pointer; transition: all 0.15s; position: relative; }
+.gallery-card:hover { background: rgba(52,211,153,0.06); border-color: rgba(52,211,153,0.2); }
+.gallery-card-icon { font-size: 1.6rem; margin-bottom: 0.5rem; }
+.gallery-card-title { font-size: 0.8rem; font-weight: 600; color: #e8e4d9; line-height: 1.3; margin-bottom: 0.3rem; word-break: keep-all; }
+.gallery-card-date { font-size: 0.7rem; color: rgba(232,228,217,0.35); font-family: 'JetBrains Mono', monospace; }
+.gallery-card-del { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border-radius: 5px; border: none; background: transparent; color: rgba(232,228,217,0.2); font-size: 0.65rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; opacity: 0; }
+.gallery-card:hover .gallery-card-del { opacity: 1; }
+.gallery-card-del:hover { background: rgba(255,107,107,0.2); color: #ff9999; }
+
+/* 폴더 트리 */
+.gallery-tree { display: flex; flex-direction: column; gap: 2px; }
+.tree-folder { display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.5rem; cursor: pointer; border-radius: 8px; transition: background 0.15s; }
+.tree-folder:hover { background: rgba(255,255,255,0.04); }
+.tree-arrow { font-size: 0.65rem; color: rgba(232,228,217,0.35); width: 12px; }
+.tree-folder-icon { font-size: 1rem; }
+.tree-folder-name { font-size: 0.88rem; font-weight: 600; color: #e8e4d9; flex: 1; }
+.tree-count { font-size: 0.7rem; color: rgba(232,228,217,0.3); font-family: 'JetBrains Mono', monospace; }
+.tree-file { display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.5rem 0.45rem 2rem; cursor: pointer; border-radius: 8px; transition: background 0.15s; }
+.tree-file:hover { background: rgba(52,211,153,0.06); }
+.tree-file-icon { font-size: 0.9rem; }
+.tree-file-name { font-size: 0.85rem; color: rgba(232,228,217,0.8); flex: 1; }
+.tree-file-date { font-size: 0.7rem; color: rgba(232,228,217,0.3); font-family: 'JetBrains Mono', monospace; margin-right: 0.5rem; }
+.tree-file .gallery-card-del { position: static; opacity: 0; }
+.tree-file:hover .gallery-card-del { opacity: 1; }
+
+/* 타임라인 */
+.gallery-timeline { display: flex; flex-direction: column; gap: 1.25rem; }
+.timeline-group {}
+.timeline-month { font-size: 0.72rem; font-weight: 600; color: rgba(232,228,217,0.35); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 0.6rem; }
+.timeline-items { border-left: 1.5px solid rgba(255,255,255,0.08); margin-left: 6px; padding-left: 16px; display: flex; flex-direction: column; gap: 6px; }
+.timeline-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0.75rem; border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; cursor: pointer; transition: all 0.15s; position: relative; }
+.timeline-item:hover { background: rgba(52,211,153,0.05); border-color: rgba(52,211,153,0.2); }
+.timeline-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(52,211,153,0.5); flex-shrink: 0; }
+.timeline-item-content { flex: 1; }
+.timeline-item-title { font-size: 0.85rem; color: #e8e4d9; display: block; }
+.timeline-item-date { font-size: 0.7rem; color: rgba(232,228,217,0.35); font-family: 'JetBrains Mono', monospace; }
+.timeline-item .gallery-card-del { position: static; opacity: 0; }
+.timeline-item:hover .gallery-card-del { opacity: 1; }
+
+/* 뷰 토글 버튼 */
+.view-toggle { display: flex; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; overflow: hidden; }
+.view-toggle button { padding: 0.3rem 0.6rem; border: none; background: none; color: rgba(232,228,217,0.4); font-size: 0.85rem; cursor: pointer; transition: all 0.15s; }
+.view-toggle button.active { background: rgba(52,211,153,0.15); color: #34d399; }
+.view-toggle button:hover:not(.active) { color: rgba(232,228,217,0.7); }
