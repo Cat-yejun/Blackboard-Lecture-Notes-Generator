@@ -20,15 +20,25 @@ function MathDisplay({ math, display }: { math: string; display: boolean }) {
   return <span className={display ? "math-display" : "math-inline"} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-function renderLine(line: string) {
+// 인라인 파싱: LaTeX + 마크다운 bold/italic/code
+function renderInline(line: string) {
   const parts: React.ReactNode[] = [];
   let rest = line, key = 0;
   while (rest.length > 0) {
+    // Block math $$...$$
     if (rest.startsWith("$$")) { const end = rest.indexOf("$$", 2); if (end !== -1) { parts.push(<MathDisplay key={key++} math={rest.slice(2, end)} display={true} />); rest = rest.slice(end + 2); continue; } }
+    // Inline math $...$
     if (rest.startsWith("$") && rest[1] !== "$") { const end = rest.indexOf("$", 1); if (end !== -1) { parts.push(<MathDisplay key={key++} math={rest.slice(1, end)} display={false} />); rest = rest.slice(end + 1); continue; } }
+    // Bold **...**
+    if (rest.startsWith("**")) { const end = rest.indexOf("**", 2); if (end !== -1) { parts.push(<strong key={key++}>{rest.slice(2, end)}</strong>); rest = rest.slice(end + 2); continue; } }
+    // Italic *...*
+    if (rest.startsWith("*") && rest[1] !== "*") { const end = rest.indexOf("*", 1); if (end !== -1) { parts.push(<em key={key++}>{rest.slice(1, end)}</em>); rest = rest.slice(end + 1); continue; } }
+    // Inline code `...`
+    if (rest.startsWith("`")) { const end = rest.indexOf("`", 1); if (end !== -1) { parts.push(<code key={key++} className="md-code">{rest.slice(1, end)}</code>); rest = rest.slice(end + 1); continue; } }
+    // Find next marker
     let next = Infinity;
-    const bi = rest.indexOf("$$", 1); if (bi > 0) next = Math.min(next, bi);
-    const ii = rest.indexOf("$", 1); if (ii > 0) next = Math.min(next, ii);
+    const markers = ["$$", "$", "**", "*", "`"];
+    for (const m of markers) { const idx = rest.indexOf(m, 1); if (idx > 0) next = Math.min(next, idx); }
     if (next === Infinity) { parts.push(<span key={key++}>{rest}</span>); rest = ""; }
     else { parts.push(<span key={key++}>{rest.slice(0, next)}</span>); rest = rest.slice(next); }
   }
@@ -36,13 +46,181 @@ function renderLine(line: string) {
 }
 
 function RenderedContent({ latex }: { latex: string }) {
-  return <div className="rendered-content">{latex.split("\n").map((line, i) => <div key={i} className="rendered-line">{line ? renderLine(line) : null}</div>)}</div>;
+  const lines = latex.split("\n");
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    // 구분선 ---
+    if (/^---+$/.test(line.trim())) {
+      elements.push(<hr key={i} className="md-hr" />);
+    // 제목 ###
+    } else if (line.startsWith("### ")) {
+      elements.push(<h3 key={i} className="md-h3">{renderInline(line.slice(4))}</h3>);
+    } else if (line.startsWith("## ")) {
+      elements.push(<h2 key={i} className="md-h2">{renderInline(line.slice(3))}</h2>);
+    } else if (line.startsWith("# ")) {
+      elements.push(<h1 key={i} className="md-h1">{renderInline(line.slice(2))}</h1>);
+    // 순서없는 목록 - item
+    } else if (/^[-*] /.test(line)) {
+      const listItems: React.ReactNode[] = [];
+      while (i < lines.length && /^[-*] /.test(lines[i])) {
+        listItems.push(<li key={i}>{renderInline(lines[i].slice(2))}</li>);
+        i++;
+      }
+      elements.push(<ul key={`ul-${i}`} className="md-ul">{listItems}</ul>);
+      continue;
+    // 순서있는 목록 1. item
+    } else if (/^\d+\. /.test(line)) {
+      const listItems: React.ReactNode[] = [];
+      while (i < lines.length && /^\d+\. /.test(lines[i])) {
+        listItems.push(<li key={i}>{renderInline(lines[i].replace(/^\d+\. /, ""))}</li>);
+        i++;
+      }
+      elements.push(<ol key={`ol-${i}`} className="md-ol">{listItems}</ol>);
+      continue;
+    // 빈 줄
+    } else if (line.trim() === "") {
+      elements.push(<div key={i} className="md-blank" />);
+    // 일반 텍스트
+    } else {
+      elements.push(<div key={i} className="rendered-line">{renderInline(line)}</div>);
+    }
+    i++;
+  }
+  return <div className="rendered-content">{elements}</div>;
 }
+
+// 하위 호환
+function renderLine(line: string) { return renderInline(line); }
 
 function ImageModal({ src, onClose }: { src: string; onClose: () => void }) {
   useEffect(() => { const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, [onClose]);
   return <div className="modal-overlay" onClick={onClose}><div className="modal-content" onClick={e => e.stopPropagation()}><button className="modal-close" onClick={onClose}>✕</button><img src={src} alt="칠판 사진" className="modal-img" /></div></div>;
 }
+
+function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (dataUrl: string) => void; onCancel: () => void; }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [rotation, setRotation] = useState(0);
+  // crop은 실제 이미지 표시 영역 내 % 기준
+  const [crop, setCrop] = useState({ x: 5, y: 5, w: 90, h: 90 });
+  const [dragging, setDragging] = useState<null | "move" | "tl" | "tr" | "bl" | "br">(null);
+  const [dragStart, setDragStart] = useState({ mx: 0, my: 0, crop: { x: 5, y: 5, w: 90, h: 90 } });
+
+  // object-fit:contain 기준 실제 이미지 표시 영역 계산
+  const getImgRect = () => {
+    const img = imgRef.current;
+    const container = containerRef.current;
+    if (!img || !container) return { left: 0, top: 0, width: 0, height: 0 };
+    const cr = container.getBoundingClientRect();
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    const scale = Math.min(cr.width / iw, cr.height / ih);
+    const rw = iw * scale, rh = ih * scale;
+    return { left: (cr.width - rw) / 2, top: (cr.height - rh) / 2, width: rw, height: rh };
+  };
+
+  const onMouseDown = (e: React.MouseEvent, type: typeof dragging) => {
+    e.preventDefault(); e.stopPropagation();
+    setDragging(type);
+    setDragStart({ mx: e.clientX, my: e.clientY, crop: { ...crop } });
+  };
+
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (!dragging) return;
+    const ir = getImgRect();
+    if (!ir.width) return;
+    const dx = (e.clientX - dragStart.mx) / ir.width * 100;
+    const dy = (e.clientY - dragStart.my) / ir.height * 100;
+    const c = dragStart.crop; const MIN = 5;
+    if (dragging === "move") {
+      setCrop({ ...c, x: Math.max(0, Math.min(100 - c.w, c.x + dx)), y: Math.max(0, Math.min(100 - c.h, c.y + dy)) });
+    } else if (dragging === "tl") {
+      const nx = Math.max(0, Math.min(c.x + c.w - MIN, c.x + dx));
+      const ny = Math.max(0, Math.min(c.y + c.h - MIN, c.y + dy));
+      setCrop({ x: nx, y: ny, w: c.w + (c.x - nx), h: c.h + (c.y - ny) });
+    } else if (dragging === "tr") {
+      const ny = Math.max(0, Math.min(c.y + c.h - MIN, c.y + dy));
+      setCrop({ x: c.x, y: ny, w: Math.max(MIN, Math.min(100 - c.x, c.w + dx)), h: c.h + (c.y - ny) });
+    } else if (dragging === "bl") {
+      const nx = Math.max(0, Math.min(c.x + c.w - MIN, c.x + dx));
+      setCrop({ x: nx, y: c.y, w: c.w + (c.x - nx), h: Math.max(MIN, Math.min(100 - c.y, c.h + dy)) });
+    } else if (dragging === "br") {
+      setCrop({ x: c.x, y: c.y, w: Math.max(MIN, Math.min(100 - c.x, c.w + dx)), h: Math.max(MIN, Math.min(100 - c.y, c.h + dy)) });
+    }
+  };
+
+  const apply = () => {
+    const img = imgRef.current!;
+    const canvas = canvasRef.current!;
+    // 원본 이미지 픽셀 기준으로 크롭
+    const sx = Math.round(crop.x / 100 * img.naturalWidth);
+    const sy = Math.round(crop.y / 100 * img.naturalHeight);
+    const sw = Math.round(crop.w / 100 * img.naturalWidth);
+    const sh = Math.round(crop.h / 100 * img.naturalHeight);
+    // 회전 적용
+    const rad = rotation * Math.PI / 180;
+    const cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad));
+    const rw = sw * cos + sh * sin;
+    const rh = sw * sin + sh * cos;
+    canvas.width = Math.round(rw); canvas.height = Math.round(rh);
+    const ctx = canvas.getContext("2d")!;
+    ctx.translate(rw / 2, rh / 2);
+    ctx.rotate(rad);
+    ctx.drawImage(img, sx, sy, sw, sh, -sw / 2, -sh / 2, sw, sh);
+    onDone(canvas.toDataURL("image/jpeg", 0.92));
+  };
+
+  const H: React.CSSProperties = { position: "absolute", width: 14, height: 14, background: "#34d399", border: "2px solid #fff", borderRadius: "50%", cursor: "pointer", zIndex: 2 };
+
+  // 오버레이를 실제 이미지 영역에만 표시하기 위한 스타일
+  const ir = typeof window !== "undefined" ? getImgRect() : { left: 0, top: 0, width: 0, height: 0 };
+
+  return (
+    <div className="modal-overlay">
+      <div className="cropper-modal" onClick={e => e.stopPropagation()}>
+        <div className="sessions-header">
+          <span>✂️ 사진 편집</span>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+            <button className="export-btn" onClick={() => setRotation(r => (r - 90 + 360) % 360)}>↺ 회전</button>
+            <button className="export-btn" onClick={() => setRotation(r => (r + 90) % 360)}>↻ 회전</button>
+            <button className="modal-close" onClick={onCancel}>✕</button>
+          </div>
+        </div>
+        <div className="cropper-body">
+          <div ref={containerRef} className="cropper-container"
+            onMouseMove={onMouseMove} onMouseUp={() => setDragging(null)} onMouseLeave={() => setDragging(null)}>
+            <img ref={imgRef} src={src} alt="편집" className="cropper-img"
+              style={{ transform: `rotate(${rotation}deg)` }} draggable={false}
+              onLoad={() => setCrop({ x: 5, y: 5, w: 90, h: 90 })} />
+            {/* 크롭 오버레이: 실제 이미지 표시 영역 기준 */}
+            <div style={{
+              position: "absolute",
+              left: ir.left + crop.x / 100 * ir.width,
+              top: ir.top + crop.y / 100 * ir.height,
+              width: crop.w / 100 * ir.width,
+              height: crop.h / 100 * ir.height,
+              cursor: "move"
+            }} onMouseDown={e => onMouseDown(e, "move")}>
+              <div style={{ position: "absolute", inset: 0, border: "2px solid #34d399", pointerEvents: "none" }} />
+              <div style={{ ...H, left: 0, top: 0, transform: "translate(-50%,-50%)" }} onMouseDown={e => onMouseDown(e, "tl")} />
+              <div style={{ ...H, right: 0, top: 0, transform: "translate(50%,-50%)" }} onMouseDown={e => onMouseDown(e, "tr")} />
+              <div style={{ ...H, left: 0, bottom: 0, transform: "translate(-50%,50%)" }} onMouseDown={e => onMouseDown(e, "bl")} />
+              <div style={{ ...H, right: 0, bottom: 0, transform: "translate(50%,50%)" }} onMouseDown={e => onMouseDown(e, "br")} />
+            </div>
+          </div>
+          <canvas ref={canvasRef} style={{ display: "none" }} />
+        </div>
+        <div style={{ padding: "1rem 1.5rem", display: "flex", gap: "0.75rem" }}>
+          <button className="login-btn" style={{ flex: 1 }} onClick={apply}>✓ 적용</button>
+          <button className="export-btn" style={{ flex: 1, textAlign: "center", padding: "0.85rem" }} onClick={onCancel}>취소</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 function SectionBlock({ section, index, tab, onDelete, onMove, onEdit, isFirst, isLast }: { section: Section; index: number; tab: string; onDelete: () => void; onMove: (dir: -1 | 1) => void; onEdit: (latex: string) => void; isFirst: boolean; isLast: boolean; }) {
   const [showSummary, setShowSummary] = useState(false);
@@ -72,8 +250,7 @@ function SectionBlock({ section, index, tab, onDelete, onMove, onEdit, isFirst, 
       {editing ? (
         <div className="edit-area">
           <textarea className="latex-editor" value={editVal} onChange={e => setEditVal(e.target.value)}
-            rows={Math.max(6, editVal.split("
-").length + 1)} spellCheck={false} />
+            rows={Math.max(6, editVal.split("\n").length + 1)} spellCheck={false} />
           <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
             <button className="login-btn" style={{ flex: 1, padding: "0.6rem" }} onClick={commitEdit}>✓ 적용</button>
             <button className="export-btn" style={{ flex: 1, textAlign: "center", padding: "0.6rem" }} onClick={() => setEditing(false)}>취소</button>
@@ -495,22 +672,57 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
   const exportPDF = ({ includeSummary, includeImage }: { includeSummary: boolean; includeImage: boolean }) => {
     const win = window.open("", "_blank"); if (!win) { notify("팝업 차단됨"); return; }
     const katexCSS = Array.from(document.styleSheets).map(s => { try { return s.href; } catch { return null; } }).filter(Boolean).find(h => h && h.includes("katex"));
-    // LaTeX 블록/인라인을 katex.renderToString으로 변환
-    const renderLatexToHtml = (text: string) => {
-      return text.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
-        try { return katex.renderToString(math, { displayMode: true, throwOnError: false }); } catch { return `$$${math}$$`; }
-      }).replace(/\$([^$\n]+?)\$/g, (_, math) => {
-        try { return katex.renderToString(math, { displayMode: false, throwOnError: false }); } catch { return `$${math}$`; }
-      });
+
+    const renderInlineHtml = (text: string) => {
+      return text
+        .replace(/\$\$([\s\S]+?)\$\$/g, (_, m) => { try { return katex.renderToString(m, { displayMode: true, throwOnError: false }); } catch { return "$$" + m + "$$"; } })
+        .replace(/\$([^$\n]+?)\$/g, (_, m) => { try { return katex.renderToString(m, { displayMode: false, throwOnError: false }); } catch { return "$" + m + "$"; } })
+        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+        .replace(/\*(.+?)\*/g, "<em>$1</em>")
+        .replace(/`(.+?)`/g, "<code>$1</code>");
     };
+
+    const renderMarkdownHtml = (text: string) => {
+      const lines = text.split("\n");
+      let out = "";
+      let i = 0;
+      while (i < lines.length) {
+        const l = lines[i];
+        if (/^---+$/.test(l.trim())) { out += "<hr>"; }
+        else if (l.startsWith("### ")) { out += "<h3>" + renderInlineHtml(l.slice(4)) + "</h3>"; }
+        else if (l.startsWith("## ")) { out += "<h2>" + renderInlineHtml(l.slice(3)) + "</h2>"; }
+        else if (l.startsWith("# ")) { out += "<h1 class='md-h1'>" + renderInlineHtml(l.slice(2)) + "</h1>"; }
+        else if (/^[-*] /.test(l)) {
+          out += "<ul>";
+          while (i < lines.length && /^[-*] /.test(lines[i])) { out += "<li>" + renderInlineHtml(lines[i].slice(2)) + "</li>"; i++; }
+          out += "</ul>"; continue;
+        } else if (/^\d+\. /.test(l)) {
+          out += "<ol>";
+          while (i < lines.length && /^\d+\. /.test(lines[i])) { out += "<li>" + renderInlineHtml(lines[i].replace(/^\d+\. /, "")) + "</li>"; i++; }
+          out += "</ol>"; continue;
+        } else if (l.trim() === "") { out += "<br>"; }
+        else { out += "<div>" + renderInlineHtml(l) + "</div>"; }
+        i++;
+      }
+      return out;
+    };
+
     const html = sections.map((s, i) => {
-      const renderedLatex = s.latex.split("\n").map(l => `<div>${l ? renderLatexToHtml(l) : "<br>"}</div>`).join("");
-      const renderedSummary = includeSummary && s.summary ? `<div class="sum">${renderLatexToHtml(s.summary)}</div>` : "";
-      return `<div class="section"><div class="st">섹션 ${i+1}</div>${renderedSummary}${includeImage && s.imageUrl ? `<img src="${s.imageUrl}" style="max-width:100%;border-radius:8px;margin-bottom:.75rem"/>` : ""}<div>${renderedLatex}</div>${i<sections.length-1?"<hr>":""}</div>`;
+      const renderedLatex = renderMarkdownHtml(s.latex);
+      const renderedSummary = includeSummary && s.summary ? "<div class='sum'>" + renderMarkdownHtml(s.summary) + "</div>" : "";
+      const img = includeImage && s.imageUrl ? "<img src='" + s.imageUrl + "' style='max-width:100%;border-radius:8px;margin-bottom:.75rem'/>" : "";
+      const divider = i < sections.length - 1 ? "<hr class='section-divider'>" : "";
+      return "<div class='section'><div class='st'>섹션 " + (i+1) + "</div>" + renderedSummary + img + "<div>" + renderedLatex + "</div>" + divider + "</div>";
     }).join("");
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${saveTitle}</title>${katexCSS?`<link rel="stylesheet" href="${katexCSS}">`:""}<style>body{font-family:sans-serif;padding:40px;max-width:800px;margin:0 auto;color:#1a1a1a}h1{font-size:1.6rem}.date{color:#888;font-size:.85rem;margin-bottom:2rem}.section{margin-bottom:2.5rem;page-break-inside:avoid}.st{font-weight:700;border-left:3px solid #34d399;padding-left:.75rem;margin-bottom:.5rem}.sum{font-size:.82rem;color:#666;background:#f5f5f5;padding:.5rem .75rem;border-radius:6px;margin-bottom:.75rem}.katex-display{margin:1rem 0}hr{border:none;border-top:1px solid #eee;margin:2rem 0}</style></head><body><h1>${saveTitle}</h1><div class="date">${new Date().toLocaleDateString("ko-KR")}</div>${html}</body></html>`);
-    win.document.close(); setTimeout(() => { win.focus(); win.print(); }, 500);
+
+    const css = "body{font-family:sans-serif;padding:40px;max-width:800px;margin:0 auto;color:#1a1a1a;line-height:1.7} h1{font-size:1.5rem;margin-bottom:.25rem} h2{font-size:1.15rem;font-weight:700;margin:1rem 0 .4rem;border-bottom:1px solid #eee;padding-bottom:.2rem} h3{font-size:1rem;font-weight:700;margin:.7rem 0 .3rem} .date{color:#888;font-size:.85rem;margin-bottom:2rem} .section{margin-bottom:2.5rem;page-break-inside:avoid} .st{font-weight:700;border-left:3px solid #34d399;padding-left:.75rem;margin-bottom:.75rem} .sum{font-size:.85rem;color:#444;background:#f7f7f7;padding:.6rem .9rem;border-radius:6px;margin-bottom:.75rem} ul,ol{padding-left:1.5rem;margin:.4rem 0} li{margin:.15rem 0} code{font-family:monospace;font-size:.88em;background:#f0f0f0;padding:.1em .35em;border-radius:3px} hr{border:none;border-top:1px solid #eee;margin:1rem 0} .section-divider{border:none;border-top:2px solid #eee;margin:2rem 0} .katex-display{margin:1rem 0} .md-h1{font-size:1.3rem}";
+
+    const katexLink = katexCSS ? "<link rel='stylesheet' href='" + katexCSS + "'>" : "";
+    win.document.write("<!DOCTYPE html><html><head><meta charset='utf-8'><title>" + saveTitle + "</title>" + katexLink + "<style>" + css + "</style></head><body><h1>" + saveTitle + "</h1><div class='date'>" + new Date().toLocaleDateString("ko-KR") + "</div>" + html + "</body></html>");
+    win.document.close();
+    setTimeout(() => { win.focus(); win.print(); }, 500);
   };
+
   const copyAll = () => { navigator.clipboard.writeText(sections.map(s => s.latex).join("\n\n---\n\n")); notify("복사됨!"); };
 
   return (
@@ -581,9 +793,14 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
             {image ? <img src={image} alt="미리보기" /> : <div className="drop-placeholder"><div className="drop-icon">🖼️</div><div className="drop-label">칠판 사진을 업로드하세요</div><div className="drop-sub">drag & drop · 클릭하여 선택</div></div>}
           </div>
           <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => handleFile(e.target.files?.[0])} />
-          <button className="analyze-btn" onClick={analyze} disabled={!imageBase64 || loading}>
-            {loading ? <><div className="spinner" />분석 중...</> : <>✨ 필기에 추가</>}
-          </button>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button className="analyze-btn" style={{ flex: 1 }} onClick={analyze} disabled={!imageBase64 || loading}>
+              {loading ? <><div className="spinner" />분석 중...</> : <>✨ 필기에 추가</>}
+            </button>
+            {image && (
+              <button className="reset-img-btn" onClick={() => { setImage(null); setImageBase64(null); if (fileRef.current) fileRef.current.value = ""; }} title="이미지 초기화">✕</button>
+            )}
+          </div>
           <button className="export-btn" style={{ width: "100%", textAlign: "center", padding: "0.65rem" }}
             onClick={() => setSections(prev => [...prev, { id: Date.now().toString(), latex: "", summary: "", imageUrl: "", createdAt: new Date() }])}>
             ✏️ 빈 섹션 추가 (직접 입력)
@@ -618,7 +835,7 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
               : sections.length === 0 ? <div className="empty-state"><div className="empty-state-icon">📝</div><div className="empty-state-text">사진을 업로드하고 추가하세요</div></div>
               : <div className="sections-list">
                   {loading && <div className="loading-inline"><div className="loading-dots"><div className="loading-dot" /><div className="loading-dot" /><div className="loading-dot" /></div><span className="loading-text">분석 중...</span></div>}
-                  {sections.map((s, i) => <SectionBlock key={s.id} section={s} index={i} tab={tab} onDelete={() => deleteSection(s.id)} onMove={dir => moveSection(s.id, dir)} isFirst={i === 0} isLast={i === sections.length - 1} />)}
+                  {sections.map((s, i) => <SectionBlock key={s.id} section={s} index={i} tab={tab} onDelete={() => deleteSection(s.id)} onMove={dir => moveSection(s.id, dir)} onEdit={latex => editSection(s.id, latex)} isFirst={i === 0} isLast={i === sections.length - 1} />)}
                 </div>
             }
           </div>
