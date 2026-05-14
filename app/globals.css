@@ -301,3 +301,34 @@ body {
   padding: 1rem; background: rgba(255,255,255,0.02);
   border-radius: 10px; margin-bottom: 1rem;
 }
+
+/* ── 요약 토글 ── */
+.summary-toggle {
+  font-size: 0.7rem; font-family: 'JetBrains Mono', monospace;
+  color: rgba(52,211,153,0.7); background: rgba(52,211,153,0.08);
+  border: 1px solid rgba(52,211,153,0.2); border-radius: 6px;
+  padding: 0.2rem 0.6rem; cursor: pointer; transition: all 0.15s;
+}
+.summary-toggle:hover { background: rgba(52,211,153,0.15); color: #34d399; }
+
+.summary-box {
+  margin-bottom: 0.75rem; padding: 0.65rem 0.9rem;
+  background: rgba(52,211,153,0.06); border: 1px solid rgba(52,211,153,0.15);
+  border-radius: 8px; font-size: 0.82rem; color: rgba(232,228,217,0.6);
+  font-family: 'JetBrains Mono', monospace; line-height: 1.6;
+  animation: slideDown 0.15s ease;
+}
+@keyframes slideDown { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── 섹션 헤더 액션 ── */
+.section-header { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+.section-actions { display: flex; gap: 0.25rem; margin-left: auto; }
+.section-actions button {
+  width: 24px; height: 24px; border-radius: 5px;
+  border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04);
+  color: rgba(232,228,217,0.5); font-size: 0.7rem; cursor: pointer; transition: all 0.15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.section-actions button:hover:not(:disabled) { background: rgba(255,255,255,0.1); color: #e8e4d9; }
+.section-actions button:disabled { opacity: 0.2; cursor: not-allowed; }
+.section-actions .del-btn:hover { background: rgba(255,107,107,0.15) !important; color: #ff9999 !important; }

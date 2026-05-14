@@ -2,7 +2,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import katex from "katex";
 
-// ── Types ────────────────────────────────────────────────────────
 interface Section {
   id: string;
   latex: string;
@@ -53,6 +52,40 @@ function RenderedContent({ latex }: { latex: string }) {
   );
 }
 
+// ── Section Block ────────────────────────────────────────────────
+function SectionBlock({ section, index, tab, onDelete, onMove, isFirst, isLast }: {
+  section: Section; index: number; tab: string;
+  onDelete: () => void; onMove: (dir: -1 | 1) => void;
+  isFirst: boolean; isLast: boolean;
+}) {
+  const [showSummary, setShowSummary] = useState(false);
+
+  return (
+    <div className="section-block">
+      <div className="section-header">
+        <span className="section-num">섹션 {index + 1}</span>
+        {section.summary && (
+          <button className="summary-toggle" onClick={() => setShowSummary(v => !v)}>
+            {showSummary ? "요약 숨기기 ▲" : "요약 보기 ▼"}
+          </button>
+        )}
+        <div className="section-actions">
+          <button onClick={() => onMove(-1)} disabled={isFirst} title="위로">↑</button>
+          <button onClick={() => onMove(1)} disabled={isLast} title="아래로">↓</button>
+          <button onClick={onDelete} className="del-btn" title="삭제">✕</button>
+        </div>
+      </div>
+      {showSummary && section.summary && (
+        <div className="summary-box">{section.summary}</div>
+      )}
+      {tab === "rendered"
+        ? <RenderedContent latex={section.latex} />
+        : <div className="raw-content">{section.latex}</div>
+      }
+    </div>
+  );
+}
+
 // ── Main ─────────────────────────────────────────────────────────
 export default function Home() {
   const [image, setImage] = useState<string | null>(null);
@@ -62,8 +95,10 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"rendered" | "latex">("rendered");
   const [exportMsg, setExportMsg] = useState("");
+  const [pdfLoading, setPdfLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
+  const printRef = useRef<HTMLDivElement>(null);
 
   const handleFile = useCallback((file: File | null | undefined) => {
     if (!file || !file.type.startsWith("image/")) return;
@@ -89,22 +124,18 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok || data.error) { setError(data.error || `오류 ${res.status}`); return; }
       const [main, sum] = (data.text as string).split("---SUMMARY---");
-      const newSection: Section = {
+      setSections(prev => [...prev, {
         id: Date.now().toString(),
         latex: main.trim(),
         summary: sum?.trim() || "",
         imageUrl: image,
         createdAt: new Date(),
-      };
-      setSections(prev => [...prev, newSection]);
-      setImage(null);
-      setImageBase64(null);
+      }]);
+      setImage(null); setImageBase64(null);
       if (fileRef.current) fileRef.current.value = "";
     } catch (e: unknown) {
       setError(`네트워크 오류: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const deleteSection = (id: string) => setSections(prev => prev.filter(s => s.id !== id));
@@ -121,53 +152,105 @@ export default function Home() {
     });
   };
 
-  const allLatex = sections.map(s => s.latex).join("\n\n---\n\n");
+  const notify = (msg: string) => { setExportMsg(msg); setTimeout(() => setExportMsg(""), 2500); };
 
   const exportLatex = () => {
     const doc = `\\documentclass{article}
-\\usepackage{amsmath}
-\\usepackage{amssymb}
+\\usepackage{amsmath,amssymb}
 \\usepackage[utf8]{inputenc}
-\\usepackage[T1]{fontenc}
-
 \\title{칠판 필기}
 \\date{${new Date().toLocaleDateString("ko-KR")}}
-
 \\begin{document}
 \\maketitle
-
-${sections.map((s, i) => `\\section*{섹션 ${i + 1}${s.summary ? ` — ${s.summary}` : ""}}\n\n${s.latex}`).join("\n\n")}
-
+${sections.map((s, i) => `\\section*{섹션 ${i + 1}${s.summary ? ` — ${s.summary}` : ""}}\n${s.latex}`).join("\n\n")}
 \\end{document}`;
-    const blob = new Blob([doc], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "lecture-notes.tex"; a.click();
-    URL.revokeObjectURL(url);
-    setExportMsg("LaTeX 파일 저장됨!");
-    setTimeout(() => setExportMsg(""), 2000);
+    const a = Object.assign(document.createElement("a"), {
+      href: URL.createObjectURL(new Blob([doc], { type: "text/plain" })),
+      download: "lecture-notes.tex",
+    });
+    a.click(); notify("LaTeX 저장됨!");
   };
 
   const exportMarkdown = () => {
-    const doc = `# 칠판 필기\n\n_${new Date().toLocaleDateString("ko-KR")}_\n\n` +
+    const doc = `# 칠판 필기\n_${new Date().toLocaleDateString("ko-KR")}_\n\n` +
       sections.map((s, i) => `## 섹션 ${i + 1}${s.summary ? ` — ${s.summary}` : ""}\n\n${s.latex}`).join("\n\n---\n\n");
-    const blob = new Blob([doc], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "lecture-notes.md"; a.click();
-    URL.revokeObjectURL(url);
-    setExportMsg("Markdown 파일 저장됨!");
-    setTimeout(() => setExportMsg(""), 2000);
+    const a = Object.assign(document.createElement("a"), {
+      href: URL.createObjectURL(new Blob([doc], { type: "text/plain" })),
+      download: "lecture-notes.md",
+    });
+    a.click(); notify("Markdown 저장됨!");
+  };
+
+  const exportPDF = async () => {
+    setPdfLoading(true);
+    try {
+      // katex CSS 로드 확인 후 print
+      const printContent = document.getElementById("print-area");
+      if (!printContent) return;
+
+      const win = window.open("", "_blank");
+      if (!win) { notify("팝업이 차단됐어요. 팝업 허용 후 다시 시도하세요."); return; }
+
+      // KaTeX CSS 가져오기
+      const katexCSS = Array.from(document.styleSheets)
+        .map(s => { try { return s.href; } catch { return null; } })
+        .filter(Boolean)
+        .find(h => h && h.includes("katex"));
+
+      win.document.write(`<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>칠판 필기</title>
+${katexCSS ? `<link rel="stylesheet" href="${katexCSS}">` : ""}
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
+  * { box-sizing: border-box; }
+  body { font-family: 'Noto Sans KR', sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; color: #1a1a1a; }
+  h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
+  .date { color: #888; font-size: 0.85rem; margin-bottom: 2rem; }
+  .section { margin-bottom: 2.5rem; page-break-inside: avoid; }
+  .section-title { font-size: 1rem; font-weight: 700; color: #333; border-left: 3px solid #34d399; padding-left: 0.75rem; margin-bottom: 0.5rem; }
+  .summary { font-size: 0.82rem; color: #666; background: #f5f5f5; padding: 0.5rem 0.75rem; border-radius: 6px; margin-bottom: 0.75rem; }
+  .content { line-height: 1.9; font-size: 0.95rem; }
+  .katex-display { margin: 1rem 0; }
+  hr { border: none; border-top: 1px solid #eee; margin: 2rem 0; }
+</style>
+</head><body>
+<h1>칠판 필기</h1>
+<div class="date">${new Date().toLocaleDateString("ko-KR")}</div>
+${printContent.innerHTML}
+</body></html>`);
+      win.document.close();
+      win.onload = () => { win.focus(); win.print(); setPdfLoading(false); };
+    } catch {
+      notify("PDF 생성 중 오류가 발생했어요.");
+      setPdfLoading(false);
+    }
   };
 
   const copyAll = () => {
-    navigator.clipboard.writeText(allLatex);
-    setExportMsg("전체 복사됨!");
-    setTimeout(() => setExportMsg(""), 2000);
+    navigator.clipboard.writeText(sections.map(s => s.latex).join("\n\n---\n\n"));
+    notify("전체 복사됨!");
   };
 
   return (
     <div className="app">
+      {/* 숨겨진 PDF 프린트 영역 */}
+      <div id="print-area" style={{ display: "none" }} ref={printRef}>
+        {sections.map((s, i) => (
+          <div key={s.id} className="section">
+            <div className="section-title">섹션 {i + 1}{s.summary ? ` — ${s.summary}` : ""}</div>
+            {s.summary && <div className="summary">{s.summary}</div>}
+            <div className="content">
+              {s.latex.split("\n").map((line, j) => (
+                <div key={j}>{line ? renderLine(line) : <br />}</div>
+              ))}
+            </div>
+            {i < sections.length - 1 && <hr />}
+          </div>
+        ))}
+      </div>
+
       <header className="header">
         <div className="header-icon">📐</div>
         <div className="header-text">
@@ -177,20 +260,21 @@ ${sections.map((s, i) => `\\section*{섹션 ${i + 1}${s.summary ? ` — ${s.summ
         {sections.length > 0 && (
           <div className="header-actions">
             <span className="section-count">{sections.length}개 섹션</span>
-            <button className="export-btn" onClick={exportMarkdown} title="Markdown으로 저장">📄 MD</button>
-            <button className="export-btn" onClick={exportLatex} title="LaTeX으로 저장">📝 TEX</button>
-            <button className="export-btn accent" onClick={copyAll} title="전체 LaTeX 복사">📋 전체복사</button>
+            <button className="export-btn" onClick={exportMarkdown}>📄 MD</button>
+            <button className="export-btn" onClick={exportLatex}>📝 TEX</button>
+            <button className="export-btn" onClick={exportPDF} disabled={pdfLoading}>
+              {pdfLoading ? "⏳ PDF..." : "🖨️ PDF"}
+            </button>
+            <button className="export-btn accent" onClick={copyAll}>📋 전체복사</button>
             {exportMsg && <span className="export-msg">{exportMsg}</span>}
           </div>
         )}
       </header>
 
       <main className="main">
-        {/* LEFT: 업로드 */}
+        {/* LEFT */}
         <div className="left-panel">
-          <div
-            ref={dropRef}
-            className="drop-zone"
+          <div ref={dropRef} className="drop-zone"
             onClick={() => fileRef.current?.click()}
             onDragOver={(e) => { e.preventDefault(); dropRef.current?.classList.add("drag-over"); }}
             onDragLeave={() => dropRef.current?.classList.remove("drag-over")}
@@ -212,7 +296,6 @@ ${sections.map((s, i) => `\\section*{섹션 ${i + 1}${s.summary ? ` — ${s.summ
           </button>
           {error && <div className="error-msg">{error}</div>}
 
-          {/* 썸네일 목록 */}
           {sections.length > 0 && (
             <div className="thumb-list">
               <div className="thumb-title">오늘의 필기 ({sections.length})</div>
@@ -224,9 +307,9 @@ ${sections.map((s, i) => `\\section*{섹션 ${i + 1}${s.summary ? ` — ${s.summ
                     <span className="thumb-sum">{s.summary || "내용 없음"}</span>
                   </div>
                   <div className="thumb-actions">
-                    <button onClick={() => moveSection(s.id, -1)} disabled={i === 0} title="위로">↑</button>
-                    <button onClick={() => moveSection(s.id, 1)} disabled={i === sections.length - 1} title="아래로">↓</button>
-                    <button onClick={() => deleteSection(s.id)} className="del-btn" title="삭제">✕</button>
+                    <button onClick={() => moveSection(s.id, -1)} disabled={i === 0}>↑</button>
+                    <button onClick={() => moveSection(s.id, 1)} disabled={i === sections.length - 1}>↓</button>
+                    <button onClick={() => deleteSection(s.id)} className="del-btn">✕</button>
                   </div>
                 </div>
               ))}
@@ -234,7 +317,7 @@ ${sections.map((s, i) => `\\section*{섹션 ${i + 1}${s.summary ? ` — ${s.summ
           )}
         </div>
 
-        {/* RIGHT: 결과 */}
+        {/* RIGHT */}
         <div className="right-panel">
           <div className="tabs">
             <button className={`tab ${tab === "rendered" ? "active" : ""}`} onClick={() => setTab("rendered")}>렌더링</button>
@@ -244,9 +327,7 @@ ${sections.map((s, i) => `\\section*{섹션 ${i + 1}${s.summary ? ` — ${s.summ
           <div className="result-area">
             {loading && sections.length === 0 ? (
               <div className="loading-state">
-                <div className="loading-dots">
-                  <div className="loading-dot" /><div className="loading-dot" /><div className="loading-dot" />
-                </div>
+                <div className="loading-dots"><div className="loading-dot" /><div className="loading-dot" /><div className="loading-dot" /></div>
                 <div className="loading-text">칠판 내용 분석 중...</div>
               </div>
             ) : sections.length === 0 ? (
@@ -258,23 +339,17 @@ ${sections.map((s, i) => `\\section*{섹션 ${i + 1}${s.summary ? ` — ${s.summ
               <div className="sections-list">
                 {loading && (
                   <div className="loading-inline">
-                    <div className="loading-dots">
-                      <div className="loading-dot" /><div className="loading-dot" /><div className="loading-dot" />
-                    </div>
+                    <div className="loading-dots"><div className="loading-dot" /><div className="loading-dot" /><div className="loading-dot" /></div>
                     <span className="loading-text">분석 중...</span>
                   </div>
                 )}
                 {sections.map((s, i) => (
-                  <div key={s.id} className="section-block">
-                    <div className="section-header">
-                      <span className="section-num">섹션 {i + 1}</span>
-                      {s.summary && <span className="section-summary">{s.summary}</span>}
-                    </div>
-                    {tab === "rendered"
-                      ? <RenderedContent latex={s.latex} />
-                      : <div className="raw-content">{s.latex}</div>
-                    }
-                  </div>
+                  <SectionBlock
+                    key={s.id} section={s} index={i} tab={tab}
+                    onDelete={() => deleteSection(s.id)}
+                    onMove={(dir) => moveSection(s.id, dir)}
+                    isFirst={i === 0} isLast={i === sections.length - 1}
+                  />
                 ))}
               </div>
             )}
