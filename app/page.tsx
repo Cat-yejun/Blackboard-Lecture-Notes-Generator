@@ -44,9 +44,14 @@ function ImageModal({ src, onClose }: { src: string; onClose: () => void }) {
   return <div className="modal-overlay" onClick={onClose}><div className="modal-content" onClick={e => e.stopPropagation()}><button className="modal-close" onClick={onClose}>✕</button><img src={src} alt="칠판 사진" className="modal-img" /></div></div>;
 }
 
-function SectionBlock({ section, index, tab, onDelete, onMove, isFirst, isLast }: { section: Section; index: number; tab: string; onDelete: () => void; onMove: (dir: -1 | 1) => void; isFirst: boolean; isLast: boolean; }) {
+function SectionBlock({ section, index, tab, onDelete, onMove, onEdit, isFirst, isLast }: { section: Section; index: number; tab: string; onDelete: () => void; onMove: (dir: -1 | 1) => void; onEdit: (latex: string) => void; isFirst: boolean; isLast: boolean; }) {
   const [showSummary, setShowSummary] = useState(false);
   const [showImage, setShowImage] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editVal, setEditVal] = useState(section.latex);
+
+  const commitEdit = () => { onEdit(editVal); setEditing(false); };
+
   return (
     <div className="section-block">
       {showImage && section.imageUrl && <ImageModal src={section.imageUrl} onClose={() => setShowImage(false)} />}
@@ -54,6 +59,9 @@ function SectionBlock({ section, index, tab, onDelete, onMove, isFirst, isLast }
         <span className="section-num">섹션 {index + 1}</span>
         {section.imageUrl && <button className="summary-toggle" onClick={() => setShowImage(true)}>🖼️ 사진</button>}
         {section.summary && <button className="summary-toggle" onClick={() => setShowSummary(v => !v)}>{showSummary ? "요약 ▲" : "요약 ▼"}</button>}
+        <button className="summary-toggle" onClick={() => { setEditVal(section.latex); setEditing(v => !v); }}>
+          {editing ? "편집 닫기" : "✏️ 편집"}
+        </button>
         <div className="section-actions">
           <button onClick={() => onMove(-1)} disabled={isFirst}>↑</button>
           <button onClick={() => onMove(1)} disabled={isLast}>↓</button>
@@ -61,7 +69,19 @@ function SectionBlock({ section, index, tab, onDelete, onMove, isFirst, isLast }
         </div>
       </div>
       {showSummary && section.summary && <div className="summary-box"><RenderedContent latex={section.summary} /></div>}
-      {tab === "rendered" ? <RenderedContent latex={section.latex} /> : <div className="raw-content">{section.latex}</div>}
+      {editing ? (
+        <div className="edit-area">
+          <textarea className="latex-editor" value={editVal} onChange={e => setEditVal(e.target.value)}
+            rows={Math.max(6, editVal.split("
+").length + 1)} spellCheck={false} />
+          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+            <button className="login-btn" style={{ flex: 1, padding: "0.6rem" }} onClick={commitEdit}>✓ 적용</button>
+            <button className="export-btn" style={{ flex: 1, textAlign: "center", padding: "0.6rem" }} onClick={() => setEditing(false)}>취소</button>
+          </div>
+        </div>
+      ) : (
+        tab === "rendered" ? <RenderedContent latex={section.latex} /> : <div className="raw-content">{section.latex}</div>
+      )}
     </div>
   );
 }
@@ -393,6 +413,8 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
   const dropRef = useRef<HTMLDivElement>(null);
   const savedSectionsRef = useRef<string>("");
   const [showUnsavedModal, setShowUnsavedModal] = useState(false);
+  const [showCropper, setShowCropper] = useState(false);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
   const today = new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\. /g, "-").replace(".", "");
 
   useEffect(() => {
@@ -413,9 +435,20 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
     if (!file || !file.type.startsWith("image/")) return;
     setError(null);
     const reader = new FileReader();
-    reader.onload = (e) => { const d = e.target!.result as string; setImage(d); setImageBase64({ data: d.split(",")[1], mediaType: file.type }); };
+    reader.onload = (e) => {
+      const d = e.target!.result as string;
+      setCropSrc(d);
+      setShowCropper(true);
+    };
     reader.readAsDataURL(file);
   }, []);
+
+  const handleCropDone = (dataUrl: string) => {
+    setImage(dataUrl);
+    setImageBase64({ data: dataUrl.split(",")[1], mediaType: "image/jpeg" });
+    setShowCropper(false);
+    setCropSrc(null);
+  };
 
   const analyze = async () => {
     if (!imageBase64 || !image) return;
@@ -433,6 +466,7 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
   };
 
   const deleteSection = (id: string) => setSections(prev => prev.filter(s => s.id !== id));
+  const editSection = (id: string, latex: string) => setSections(prev => prev.map(s => s.id === id ? { ...s, latex } : s));
   const moveSection = (id: string, dir: -1 | 1) => {
     setSections(prev => {
       const idx = prev.findIndex(s => s.id === id); if (idx < 0) return prev;
@@ -482,6 +516,7 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
   return (
     <div className="app">
       {showPdfOptions && <PdfOptionsModal onExport={exportPDF} onClose={() => setShowPdfOptions(false)} />}
+      {showCropper && cropSrc && <ImageCropper src={cropSrc} onDone={handleCropDone} onCancel={() => { setShowCropper(false); setCropSrc(null); }} />}
 
       {showUnsavedModal && (
         <div className="modal-overlay" onClick={() => setShowUnsavedModal(false)}>
@@ -548,6 +583,10 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
           <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => handleFile(e.target.files?.[0])} />
           <button className="analyze-btn" onClick={analyze} disabled={!imageBase64 || loading}>
             {loading ? <><div className="spinner" />분석 중...</> : <>✨ 필기에 추가</>}
+          </button>
+          <button className="export-btn" style={{ width: "100%", textAlign: "center", padding: "0.65rem" }}
+            onClick={() => setSections(prev => [...prev, { id: Date.now().toString(), latex: "", summary: "", imageUrl: "", createdAt: new Date() }])}>
+            ✏️ 빈 섹션 추가 (직접 입력)
           </button>
           {error && <div className="error-msg">{error}</div>}
           {sections.length > 0 && (
