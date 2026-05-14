@@ -391,6 +391,8 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
   const [saveLoading, setSaveLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
+  const savedSectionsRef = useRef<string>("");
+  const [showUnsavedModal, setShowUnsavedModal] = useState(false);
   const today = new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\. /g, "-").replace(".", "");
 
   useEffect(() => {
@@ -399,7 +401,9 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
     if (session) {
       setLoadingSession(true);
       fetch(`/api/sessions?userId=${user.id}&sessionId=${session.id}`).then(r => r.json()).then(d => {
-        setSections((d.sections || []).map((s: any) => ({ id: s.id, latex: s.latex, summary: s.summary || "", imageUrl: s.image_url || "", createdAt: new Date(s.created_at) })));
+        const loaded = (d.sections || []).map((s: any) => ({ id: s.id, latex: s.latex, summary: s.summary || "", imageUrl: s.image_url || "", createdAt: new Date(s.created_at) }));
+        setSections(loaded);
+        savedSectionsRef.current = JSON.stringify(loaded.map(s => s.latex));
         setLoadingSession(false);
       });
     }
@@ -447,7 +451,7 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
         ? await fetch("/api/sessions", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: session.id, title: saveTitle, folderId: saveFolderId, sections }) })
         : await fetch("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: user.id, title: saveTitle, folderId: saveFolderId, sections }) });
       const data = await res.json();
-      if (res.ok) { notify("저장 완료!"); setShowSaveModal(false); onSaved(); }
+      if (res.ok) { notify("저장 완료!"); setShowSaveModal(false); savedSectionsRef.current = JSON.stringify(sections.map(s => s.latex)); onSaved(); }
       else notify("저장 실패: " + data.error);
     } catch { notify("저장 실패"); } finally { setSaveLoading(false); }
   };
@@ -466,6 +470,19 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
   return (
     <div className="app">
       {showPdfOptions && <PdfOptionsModal onExport={exportPDF} onClose={() => setShowPdfOptions(false)} />}
+
+      {showUnsavedModal && (
+        <div className="modal-overlay" onClick={() => setShowUnsavedModal(false)}>
+          <div className="save-modal" onClick={e => e.stopPropagation()}>
+            <div className="sessions-header"><span>⚠️ 저장하지 않은 변경사항</span><button className="modal-close" onClick={() => setShowUnsavedModal(false)}>✕</button></div>
+            <div style={{ padding: "1.25rem 1.5rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              <p style={{ fontSize: "0.88rem", color: "rgba(232,228,217,0.7)", lineHeight: 1.6 }}>저장하지 않은 내용이 있어요. 갤러리로 이동할까요?</p>
+              <button className="login-btn" onClick={() => { setShowUnsavedModal(false); setShowSaveModal(true); }}>💾 저장하고 이동</button>
+              <button className="export-btn" style={{ textAlign: "center", padding: "0.7rem" }} onClick={() => { setShowUnsavedModal(false); onBack(); }}>저장 안 하고 이동</button>
+            </div>
+          </div>
+        </div>
+      )}
       {showSaveModal && (
         <div className="modal-overlay" onClick={() => setShowSaveModal(false)}>
           <div className="save-modal" onClick={e => e.stopPropagation()}>
@@ -485,7 +502,11 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
       )}
 
       <header className="header">
-        <button className="back-btn" onClick={onBack}>← 갤러리</button>
+        <button className="back-btn" onClick={() => {
+          const hasUnsaved = sections.length > 0 && JSON.stringify(sections.map(s => s.latex)) !== savedSectionsRef.current;
+          if (hasUnsaved) setShowUnsavedModal(true);
+          else onBack();
+        }}>← 갤러리</button>
         <div className="header-text" style={{ flex: 1 }}>
           <h1 style={{ fontSize: "0.95rem" }}>{saveTitle || "새 필기"}</h1>
           <p>{session ? "기존 필기 수정 중" : "새 필기"}</p>
