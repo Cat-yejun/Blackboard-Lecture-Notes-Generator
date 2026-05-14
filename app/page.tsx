@@ -99,83 +99,130 @@ function ImageModal({ src, onClose }: { src: string; onClose: () => void }) {
   return <div className="modal-overlay" onClick={onClose}><div className="modal-content" onClick={e => e.stopPropagation()}><button className="modal-close" onClick={onClose}>✕</button><img src={src} alt="칠판 사진" className="modal-img" /></div></div>;
 }
 
-function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (dataUrl: string) => void; onCancel: () => void; }) {
+function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (original: string, masked: string) => void; onCancel: () => void; }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const maskCanvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [rotation, setRotation] = useState(0);
-  // crop은 실제 이미지 표시 영역 내 % 기준
   const [crop, setCrop] = useState({ x: 5, y: 5, w: 90, h: 90 });
   const [dragging, setDragging] = useState<null | "move" | "tl" | "tr" | "bl" | "br">(null);
   const [dragStart, setDragStart] = useState({ mx: 0, my: 0, crop: { x: 5, y: 5, w: 90, h: 90 } });
+  const [tool, setTool] = useState<"crop" | "mask">("crop");
+  const [isPainting, setIsPainting] = useState(false);
+  const [maskStart, setMaskStart] = useState({ x: 0, y: 0 });
+  const [masks, setMasks] = useState<{ x: number; y: number; w: number; h: number }[]>([]);
+  const [imgLoaded, setImgLoaded] = useState(false);
 
-  // object-fit:contain 기준 실제 이미지 표시 영역 계산
   const getImgRect = () => {
     const img = imgRef.current;
     const container = containerRef.current;
-    if (!img || !container) return { left: 0, top: 0, width: 0, height: 0 };
+    if (!img || !container || !imgLoaded) return { left: 0, top: 0, width: 0, height: 0 };
     const cr = container.getBoundingClientRect();
-    const iw = img.naturalWidth, ih = img.naturalHeight;
-    const scale = Math.min(cr.width / iw, cr.height / ih);
-    const rw = iw * scale, rh = ih * scale;
+    const scale = Math.min(cr.width / img.naturalWidth, cr.height / img.naturalHeight);
+    const rw = img.naturalWidth * scale, rh = img.naturalHeight * scale;
     return { left: (cr.width - rw) / 2, top: (cr.height - rh) / 2, width: rw, height: rh };
   };
 
-  const onMouseDown = (e: React.MouseEvent, type: typeof dragging) => {
+  // 크롭 핸들러
+  const onCropMouseDown = (e: React.MouseEvent, type: typeof dragging) => {
+    if (tool !== "crop") return;
     e.preventDefault(); e.stopPropagation();
     setDragging(type);
     setDragStart({ mx: e.clientX, my: e.clientY, crop: { ...crop } });
   };
 
+  const onContainerMouseDown = (e: React.MouseEvent) => {
+    if (tool !== "mask") return;
+    const ir = getImgRect();
+    const container = containerRef.current!;
+    const rect = container.getBoundingClientRect();
+    const px = ((e.clientX - rect.left - ir.left) / ir.width) * 100;
+    const py = ((e.clientY - rect.top - ir.top) / ir.height) * 100;
+    setIsPainting(true);
+    setMaskStart({ x: px, y: py });
+  };
+
   const onMouseMove = (e: React.MouseEvent) => {
-    if (!dragging) return;
     const ir = getImgRect();
     if (!ir.width) return;
-    const dx = (e.clientX - dragStart.mx) / ir.width * 100;
-    const dy = (e.clientY - dragStart.my) / ir.height * 100;
-    const c = dragStart.crop; const MIN = 5;
-    if (dragging === "move") {
-      setCrop({ ...c, x: Math.max(0, Math.min(100 - c.w, c.x + dx)), y: Math.max(0, Math.min(100 - c.h, c.y + dy)) });
-    } else if (dragging === "tl") {
-      const nx = Math.max(0, Math.min(c.x + c.w - MIN, c.x + dx));
-      const ny = Math.max(0, Math.min(c.y + c.h - MIN, c.y + dy));
-      setCrop({ x: nx, y: ny, w: c.w + (c.x - nx), h: c.h + (c.y - ny) });
-    } else if (dragging === "tr") {
-      const ny = Math.max(0, Math.min(c.y + c.h - MIN, c.y + dy));
-      setCrop({ x: c.x, y: ny, w: Math.max(MIN, Math.min(100 - c.x, c.w + dx)), h: c.h + (c.y - ny) });
-    } else if (dragging === "bl") {
-      const nx = Math.max(0, Math.min(c.x + c.w - MIN, c.x + dx));
-      setCrop({ x: nx, y: c.y, w: c.w + (c.x - nx), h: Math.max(MIN, Math.min(100 - c.y, c.h + dy)) });
-    } else if (dragging === "br") {
-      setCrop({ x: c.x, y: c.y, w: Math.max(MIN, Math.min(100 - c.x, c.w + dx)), h: Math.max(MIN, Math.min(100 - c.y, c.h + dy)) });
+
+    if (tool === "crop" && dragging) {
+      const dx = (e.clientX - dragStart.mx) / ir.width * 100;
+      const dy = (e.clientY - dragStart.my) / ir.height * 100;
+      const c = dragStart.crop; const MIN = 5;
+      if (dragging === "move") {
+        setCrop({ ...c, x: Math.max(0, Math.min(100 - c.w, c.x + dx)), y: Math.max(0, Math.min(100 - c.h, c.y + dy)) });
+      } else if (dragging === "tl") {
+        const nx = Math.max(0, Math.min(c.x + c.w - MIN, c.x + dx));
+        const ny = Math.max(0, Math.min(c.y + c.h - MIN, c.y + dy));
+        setCrop({ x: nx, y: ny, w: c.w + (c.x - nx), h: c.h + (c.y - ny) });
+      } else if (dragging === "tr") {
+        const ny = Math.max(0, Math.min(c.y + c.h - MIN, c.y + dy));
+        setCrop({ x: c.x, y: ny, w: Math.max(MIN, Math.min(100 - c.x, c.w + dx)), h: c.h + (c.y - ny) });
+      } else if (dragging === "bl") {
+        const nx = Math.max(0, Math.min(c.x + c.w - MIN, c.x + dx));
+        setCrop({ x: nx, y: c.y, w: c.w + (c.x - nx), h: Math.max(MIN, Math.min(100 - c.y, c.h + dy)) });
+      } else if (dragging === "br") {
+        setCrop({ x: c.x, y: c.y, w: Math.max(MIN, Math.min(100 - c.x, c.w + dx)), h: Math.max(MIN, Math.min(100 - c.y, c.h + dy)) });
+      }
     }
+  };
+
+  const onMouseUp = (e: React.MouseEvent) => {
+    if (tool === "mask" && isPainting) {
+      const ir = getImgRect();
+      const container = containerRef.current!;
+      const rect = container.getBoundingClientRect();
+      const px = ((e.clientX - rect.left - ir.left) / ir.width) * 100;
+      const py = ((e.clientY - rect.top - ir.top) / ir.height) * 100;
+      const nx = Math.min(maskStart.x, px), ny = Math.min(maskStart.y, py);
+      const nw = Math.abs(px - maskStart.x), nh = Math.abs(py - maskStart.y);
+      if (nw > 1 && nh > 1) setMasks(prev => [...prev, { x: nx, y: ny, w: nw, h: nh }]);
+      setIsPainting(false);
+    }
+    setDragging(null);
   };
 
   const apply = () => {
     const img = imgRef.current!;
     const canvas = canvasRef.current!;
-    // 원본 이미지 픽셀 기준으로 크롭
     const sx = Math.round(crop.x / 100 * img.naturalWidth);
     const sy = Math.round(crop.y / 100 * img.naturalHeight);
     const sw = Math.round(crop.w / 100 * img.naturalWidth);
     const sh = Math.round(crop.h / 100 * img.naturalHeight);
-    // 회전 적용
     const rad = rotation * Math.PI / 180;
     const cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad));
-    const rw = sw * cos + sh * sin;
-    const rh = sw * sin + sh * cos;
+    const rw = sw * cos + sh * sin, rh = sw * sin + sh * cos;
     canvas.width = Math.round(rw); canvas.height = Math.round(rh);
     const ctx = canvas.getContext("2d")!;
     ctx.translate(rw / 2, rh / 2);
     ctx.rotate(rad);
     ctx.drawImage(img, sx, sy, sw, sh, -sw / 2, -sh / 2, sw, sh);
-    onDone(canvas.toDataURL("image/jpeg", 0.92));
+    // 마스크 적용 (검은 사각형)
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    masks.forEach(m => {
+      const mx = Math.round((m.x - crop.x) / crop.w * sw);
+      const my = Math.round((m.y - crop.y) / crop.h * sh);
+      const mw = Math.round(m.w / crop.w * sw);
+      const mh = Math.round(m.h / crop.h * sh);
+      ctx.fillStyle = "#000";
+      ctx.fillRect(mx, my, mw, mh);
+    });
+    // 마스크 없는 원본 (저장용)
+    const originalCanvas = document.createElement("canvas");
+    originalCanvas.width = canvas.width; originalCanvas.height = canvas.height;
+    const origCtx = originalCanvas.getContext("2d")!;
+    origCtx.translate(rw / 2, rh / 2);
+    origCtx.rotate(rad);
+    origCtx.drawImage(img, sx, sy, sw, sh, -sw / 2, -sh / 2, sw, sh);
+    const originalDataUrl = originalCanvas.toDataURL("image/jpeg", 0.92);
+    const maskedDataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    onDone(originalDataUrl, maskedDataUrl);
   };
 
   const H: React.CSSProperties = { position: "absolute", width: 14, height: 14, background: "#34d399", border: "2px solid #fff", borderRadius: "50%", cursor: "pointer", zIndex: 2 };
-
-  // 오버레이를 실제 이미지 영역에만 표시하기 위한 스타일
-  const ir = typeof window !== "undefined" ? getImgRect() : { left: 0, top: 0, width: 0, height: 0 };
+  const ir = imgLoaded ? getImgRect() : { left: 0, top: 0, width: 0, height: 0 };
 
   return (
     <div className="modal-overlay">
@@ -188,29 +235,55 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (dataUrl
             <button className="modal-close" onClick={onCancel}>✕</button>
           </div>
         </div>
+        {/* 도구 선택 */}
+        <div style={{ display: "flex", gap: "0.5rem", padding: "0.5rem 1.5rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          <button className={`export-btn ${tool === "crop" ? "accent" : ""}`} onClick={() => setTool("crop")}>✂️ 크롭</button>
+          <button className={`export-btn ${tool === "mask" ? "accent" : ""}`} onClick={() => setTool("mask")}>⬛ 가리기</button>
+          {masks.length > 0 && <button className="export-btn" onClick={() => setMasks([])} style={{ marginLeft: "auto" }}>↩ 가리기 초기화</button>}
+        </div>
         <div className="cropper-body">
           <div ref={containerRef} className="cropper-container"
-            onMouseMove={onMouseMove} onMouseUp={() => setDragging(null)} onMouseLeave={() => setDragging(null)}>
+            style={{ cursor: tool === "mask" ? "crosshair" : "default" }}
+            onMouseDown={onContainerMouseDown}
+            onMouseMove={onMouseMove}
+            onMouseUp={onMouseUp}
+            onMouseLeave={() => { setDragging(null); setIsPainting(false); }}>
             <img ref={imgRef} src={src} alt="편집" className="cropper-img"
               style={{ transform: `rotate(${rotation}deg)` }} draggable={false}
-              onLoad={() => setCrop({ x: 5, y: 5, w: 90, h: 90 })} />
-            {/* 크롭 오버레이: 실제 이미지 표시 영역 기준 */}
-            <div style={{
-              position: "absolute",
-              left: ir.left + crop.x / 100 * ir.width,
-              top: ir.top + crop.y / 100 * ir.height,
-              width: crop.w / 100 * ir.width,
-              height: crop.h / 100 * ir.height,
-              cursor: "move"
-            }} onMouseDown={e => onMouseDown(e, "move")}>
-              <div style={{ position: "absolute", inset: 0, border: "2px solid #34d399", pointerEvents: "none" }} />
-              <div style={{ ...H, left: 0, top: 0, transform: "translate(-50%,-50%)" }} onMouseDown={e => onMouseDown(e, "tl")} />
-              <div style={{ ...H, right: 0, top: 0, transform: "translate(50%,-50%)" }} onMouseDown={e => onMouseDown(e, "tr")} />
-              <div style={{ ...H, left: 0, bottom: 0, transform: "translate(-50%,50%)" }} onMouseDown={e => onMouseDown(e, "bl")} />
-              <div style={{ ...H, right: 0, bottom: 0, transform: "translate(50%,50%)" }} onMouseDown={e => onMouseDown(e, "br")} />
-            </div>
+              onLoad={() => { setImgLoaded(true); setCrop({ x: 5, y: 5, w: 90, h: 90 }); }} />
+            {/* 마스크 오버레이 */}
+            {masks.map((m, i) => (
+              <div key={i} style={{
+                position: "absolute",
+                left: ir.left + m.x / 100 * ir.width,
+                top: ir.top + m.y / 100 * ir.height,
+                width: m.w / 100 * ir.width,
+                height: m.h / 100 * ir.height,
+                background: "#000",
+                pointerEvents: "none",
+                zIndex: 3,
+              }} />
+            ))}
+            {/* 크롭 오버레이 */}
+            {tool === "crop" && (
+              <div style={{
+                position: "absolute",
+                left: ir.left + crop.x / 100 * ir.width,
+                top: ir.top + crop.y / 100 * ir.height,
+                width: crop.w / 100 * ir.width,
+                height: crop.h / 100 * ir.height,
+                cursor: "move", zIndex: 4,
+              }} onMouseDown={e => onCropMouseDown(e, "move")}>
+                <div style={{ position: "absolute", inset: 0, border: "2px solid #34d399", pointerEvents: "none" }} />
+                <div style={{ ...H, left: 0, top: 0, transform: "translate(-50%,-50%)" }} onMouseDown={e => onCropMouseDown(e, "tl")} />
+                <div style={{ ...H, right: 0, top: 0, transform: "translate(50%,-50%)" }} onMouseDown={e => onCropMouseDown(e, "tr")} />
+                <div style={{ ...H, left: 0, bottom: 0, transform: "translate(-50%,50%)" }} onMouseDown={e => onCropMouseDown(e, "bl")} />
+                <div style={{ ...H, right: 0, bottom: 0, transform: "translate(50%,50%)" }} onMouseDown={e => onCropMouseDown(e, "br")} />
+              </div>
+            )}
           </div>
           <canvas ref={canvasRef} style={{ display: "none" }} />
+          <canvas ref={maskCanvasRef} style={{ display: "none" }} />
         </div>
         <div style={{ padding: "1rem 1.5rem", display: "flex", gap: "0.75rem" }}>
           <button className="login-btn" style={{ flex: 1 }} onClick={apply}>✓ 적용</button>
@@ -609,7 +682,15 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
   }, [session]);
 
   const handleFile = useCallback((file: File | null | undefined) => {
-    if (!file || !file.type.startsWith("image/")) return;
+    if (!file) return;
+    if (!file.type.startsWith("image/") && !file.name?.toLowerCase().endsWith(".heic")) {
+      setError("이미지 파일만 업로드할 수 있어요.");
+      return;
+    }
+    if (file.type === "image/heic" || file.name?.toLowerCase().endsWith(".heic")) {
+      setError("HEIC 파일은 지원되지 않아요. 사진 앱에서 JPEG로 변환 후 업로드해주세요.");
+      return;
+    }
     setError(null);
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -620,9 +701,26 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
     reader.readAsDataURL(file);
   }, []);
 
-  const handleCropDone = (dataUrl: string) => {
-    setImage(dataUrl);
-    setImageBase64({ data: dataUrl.split(",")[1], mediaType: "image/jpeg" });
+  // 클립보드 붙여넣기 (handleFile 선언 이후)
+  useEffect(() => {
+    const handler = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) handleFile(file);
+          break;
+        }
+      }
+    };
+    window.addEventListener("paste", handler);
+    return () => window.removeEventListener("paste", handler);
+  }, [handleFile]);
+
+  const handleCropDone = (original: string, masked: string) => {
+    setImage(original); // 썸네일/사진보기용: 원본
+    setImageBase64({ data: masked.split(",")[1], mediaType: "image/jpeg" }); // AI 분석용: 마스크 적용본
     setShowCropper(false);
     setCropSrc(null);
   };
@@ -790,7 +888,7 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
             onDragOver={e => { e.preventDefault(); dropRef.current?.classList.add("drag-over"); }}
             onDragLeave={() => dropRef.current?.classList.remove("drag-over")}
             onDrop={e => { e.preventDefault(); dropRef.current?.classList.remove("drag-over"); handleFile(e.dataTransfer.files[0]); }}>
-            {image ? <img src={image} alt="미리보기" /> : <div className="drop-placeholder"><div className="drop-icon">🖼️</div><div className="drop-label">칠판 사진을 업로드하세요</div><div className="drop-sub">drag & drop · 클릭하여 선택</div></div>}
+            {image ? <img src={image} alt="미리보기" /> : <div className="drop-placeholder"><div className="drop-icon">🖼️</div><div className="drop-label">칠판 사진을 업로드하세요</div><div className="drop-sub">drag & drop · 클릭 · Ctrl+V 붙여넣기</div></div>}
           </div>
           <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => handleFile(e.target.files?.[0])} />
           <div style={{ display: "flex", gap: "0.5rem" }}>
