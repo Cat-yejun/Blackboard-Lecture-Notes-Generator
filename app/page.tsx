@@ -121,7 +121,7 @@ export default function Home() {
                 </div>
             }
           </div>
-          <input ref={fileRef} type="file" accept="image/*" capture="environment"
+          <input ref={fileRef} type="file" accept="image/*"
             style={{ display: "none" }} onChange={(e) => handleFile(e.target.files?.[0])} />
           <button className="analyze-btn" onClick={analyze} disabled={!imageBase64 || loading}>
             {loading ? <><div className="spinner" />분석 중...</> : <>✨ AI로 텍스트 추출</>}
