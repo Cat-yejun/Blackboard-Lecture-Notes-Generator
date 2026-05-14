@@ -60,7 +60,7 @@ function SectionBlock({ section, index, tab, onDelete, onMove, isFirst, isLast }
           <button onClick={onDelete} className="del-btn">✕</button>
         </div>
       </div>
-      {showSummary && section.summary && <div className="summary-box">{section.summary}</div>}
+      {showSummary && section.summary && <div className="summary-box"><RenderedContent latex={section.summary} /></div>}
       {tab === "rendered" ? <RenderedContent latex={section.latex} /> : <div className="raw-content">{section.latex}</div>}
     </div>
   );
@@ -461,9 +461,21 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
   const exportPDF = ({ includeSummary, includeImage }: { includeSummary: boolean; includeImage: boolean }) => {
     const win = window.open("", "_blank"); if (!win) { notify("팝업 차단됨"); return; }
     const katexCSS = Array.from(document.styleSheets).map(s => { try { return s.href; } catch { return null; } }).filter(Boolean).find(h => h && h.includes("katex"));
-    const html = sections.map((s, i) => `<div class="section"><div class="st">섹션 ${i+1}${s.summary ? ` — ${s.summary}` : ""}</div>${includeSummary && s.summary ? `<div class="sum">${s.summary}</div>` : ""}${includeImage && s.imageUrl ? `<img src="${s.imageUrl}" style="max-width:100%;border-radius:8px;margin-bottom:.75rem"/>` : ""}<div>${s.latex.split("\n").map(l => `<div>${l||"<br>"}</div>`).join("")}</div>${i<sections.length-1?"<hr>":""}</div>`).join("");
+    // LaTeX 블록/인라인을 katex.renderToString으로 변환
+    const renderLatexToHtml = (text: string) => {
+      return text.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
+        try { return katex.renderToString(math, { displayMode: true, throwOnError: false }); } catch { return `$$${math}$$`; }
+      }).replace(/\$([^$\n]+?)\$/g, (_, math) => {
+        try { return katex.renderToString(math, { displayMode: false, throwOnError: false }); } catch { return `$${math}$`; }
+      });
+    };
+    const html = sections.map((s, i) => {
+      const renderedLatex = s.latex.split("\n").map(l => `<div>${l ? renderLatexToHtml(l) : "<br>"}</div>`).join("");
+      const renderedSummary = includeSummary && s.summary ? `<div class="sum">${renderLatexToHtml(s.summary)}</div>` : "";
+      return `<div class="section"><div class="st">섹션 ${i+1}${s.summary ? ` — ${s.summary}` : ""}</div>${renderedSummary}${includeImage && s.imageUrl ? `<img src="${s.imageUrl}" style="max-width:100%;border-radius:8px;margin-bottom:.75rem"/>` : ""}<div>${renderedLatex}</div>${i<sections.length-1?"<hr>":""}</div>`;
+    }).join("");
     win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${saveTitle}</title>${katexCSS?`<link rel="stylesheet" href="${katexCSS}">`:""}<style>body{font-family:sans-serif;padding:40px;max-width:800px;margin:0 auto;color:#1a1a1a}h1{font-size:1.6rem}.date{color:#888;font-size:.85rem;margin-bottom:2rem}.section{margin-bottom:2.5rem;page-break-inside:avoid}.st{font-weight:700;border-left:3px solid #34d399;padding-left:.75rem;margin-bottom:.5rem}.sum{font-size:.82rem;color:#666;background:#f5f5f5;padding:.5rem .75rem;border-radius:6px;margin-bottom:.75rem}.katex-display{margin:1rem 0}hr{border:none;border-top:1px solid #eee;margin:2rem 0}</style></head><body><h1>${saveTitle}</h1><div class="date">${new Date().toLocaleDateString("ko-KR")}</div>${html}</body></html>`);
-    win.document.close(); win.onload = () => { win.focus(); win.print(); };
+    win.document.close(); setTimeout(() => { win.focus(); win.print(); }, 500);
   };
   const copyAll = () => { navigator.clipboard.writeText(sections.map(s => s.latex).join("\n\n---\n\n")); notify("복사됨!"); };
 
