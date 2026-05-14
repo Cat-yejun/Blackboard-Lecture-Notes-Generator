@@ -111,6 +111,7 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
   const [tool, setTool] = useState<"crop" | "mask">("crop");
   const [isPainting, setIsPainting] = useState(false);
   const [maskStart, setMaskStart] = useState({ x: 0, y: 0 });
+  const [currentMask, setCurrentMask] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [masks, setMasks] = useState<{ x: number; y: number; w: number; h: number }[]>([]);
   const [imgLoaded, setImgLoaded] = useState(false);
 
@@ -166,6 +167,13 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
     if (!ir.width) return;
     const { clientX, clientY } = getXY(e);
 
+    // 마스크 드래그 중 실시간 미리보기
+    if (tool === "mask" && isPainting) {
+      const { px, py } = getPct(clientX, clientY);
+      const nx = Math.min(maskStart.x, px), ny = Math.min(maskStart.y, py);
+      setCurrentMask({ x: nx, y: ny, w: Math.abs(px - maskStart.x), h: Math.abs(py - maskStart.y) });
+    }
+
     if (tool === "crop" && dragging) {
       const dx = (clientX - dragStart.mx) / ir.width * 100;
       const dy = (clientY - dragStart.my) / ir.height * 100;
@@ -196,6 +204,7 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
       const nw = Math.abs(px - maskStart.x), nh = Math.abs(py - maskStart.y);
       if (nw > 1 && nh > 1) setMasks(prev => [...prev, { x: nx, y: ny, w: nw, h: nh }]);
       setIsPainting(false);
+      setCurrentMask(null);
     }
     setDragging(null);
   };
@@ -280,6 +289,21 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
                 zIndex: 3,
               }} />
             ))}
+            {/* 드래그 중 미리보기 박스 */}
+            {currentMask && isPainting && (
+              <div style={{
+                position: "absolute",
+                left: ir.left + currentMask.x / 100 * ir.width,
+                top: ir.top + currentMask.y / 100 * ir.height,
+                width: currentMask.w / 100 * ir.width,
+                height: currentMask.h / 100 * ir.height,
+                border: "2px dashed rgba(255,100,100,0.9)",
+                background: "rgba(0,0,0,0.25)",
+                pointerEvents: "none",
+                zIndex: 5,
+                boxSizing: "border-box",
+              }} />
+            )}
             {/* 크롭 오버레이 */}
             {tool === "crop" && (
               <div style={{
