@@ -124,32 +124,51 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
     return { left: (cr.width - rw) / 2, top: (cr.height - rh) / 2, width: rw, height: rh };
   };
 
-  // 크롭 핸들러
-  const onCropMouseDown = (e: React.MouseEvent, type: typeof dragging) => {
-    if (tool !== "crop") return;
-    e.preventDefault(); e.stopPropagation();
-    setDragging(type);
-    setDragStart({ mx: e.clientX, my: e.clientY, crop: { ...crop } });
+  // 포인터 좌표 추출 (마우스/터치 공통)
+  const getXY = (e: React.MouseEvent | React.TouchEvent) => {
+    if ("touches" in e) {
+      const t = e.touches[0] || e.changedTouches[0];
+      return { clientX: t.clientX, clientY: t.clientY };
+    }
+    return { clientX: (e as React.MouseEvent).clientX, clientY: (e as React.MouseEvent).clientY };
   };
 
-  const onContainerMouseDown = (e: React.MouseEvent) => {
-    if (tool !== "mask") return;
+  const getPct = (clientX: number, clientY: number) => {
     const ir = getImgRect();
     const container = containerRef.current!;
     const rect = container.getBoundingClientRect();
-    const px = ((e.clientX - rect.left - ir.left) / ir.width) * 100;
-    const py = ((e.clientY - rect.top - ir.top) / ir.height) * 100;
+    return {
+      px: ((clientX - rect.left - ir.left) / ir.width) * 100,
+      py: ((clientY - rect.top - ir.top) / ir.height) * 100,
+    };
+  };
+
+  // 크롭 핸들러
+  const onCropPointerDown = (e: React.MouseEvent | React.TouchEvent, type: typeof dragging) => {
+    if (tool !== "crop") return;
+    e.preventDefault(); e.stopPropagation();
+    const { clientX, clientY } = getXY(e);
+    setDragging(type);
+    setDragStart({ mx: clientX, my: clientY, crop: { ...crop } });
+  };
+
+  const onContainerPointerDown = (e: React.MouseEvent | React.TouchEvent) => {
+    if (tool !== "mask") return;
+    e.preventDefault();
+    const { clientX, clientY } = getXY(e);
+    const { px, py } = getPct(clientX, clientY);
     setIsPainting(true);
     setMaskStart({ x: px, y: py });
   };
 
-  const onMouseMove = (e: React.MouseEvent) => {
+  const onPointerMove = (e: React.MouseEvent | React.TouchEvent) => {
     const ir = getImgRect();
     if (!ir.width) return;
+    const { clientX, clientY } = getXY(e);
 
     if (tool === "crop" && dragging) {
-      const dx = (e.clientX - dragStart.mx) / ir.width * 100;
-      const dy = (e.clientY - dragStart.my) / ir.height * 100;
+      const dx = (clientX - dragStart.mx) / ir.width * 100;
+      const dy = (clientY - dragStart.my) / ir.height * 100;
       const c = dragStart.crop; const MIN = 5;
       if (dragging === "move") {
         setCrop({ ...c, x: Math.max(0, Math.min(100 - c.w, c.x + dx)), y: Math.max(0, Math.min(100 - c.h, c.y + dy)) });
@@ -169,13 +188,10 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
     }
   };
 
-  const onMouseUp = (e: React.MouseEvent) => {
+  const onPointerUp = (e: React.MouseEvent | React.TouchEvent) => {
     if (tool === "mask" && isPainting) {
-      const ir = getImgRect();
-      const container = containerRef.current!;
-      const rect = container.getBoundingClientRect();
-      const px = ((e.clientX - rect.left - ir.left) / ir.width) * 100;
-      const py = ((e.clientY - rect.top - ir.top) / ir.height) * 100;
+      const { clientX, clientY } = getXY(e);
+      const { px, py } = getPct(clientX, clientY);
       const nx = Math.min(maskStart.x, px), ny = Math.min(maskStart.y, py);
       const nw = Math.abs(px - maskStart.x), nh = Math.abs(py - maskStart.y);
       if (nw > 1 && nh > 1) setMasks(prev => [...prev, { x: nx, y: ny, w: nw, h: nh }]);
@@ -244,9 +260,9 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
         <div className="cropper-body">
           <div ref={containerRef} className="cropper-container"
             style={{ cursor: tool === "mask" ? "crosshair" : "default" }}
-            onMouseDown={onContainerMouseDown}
-            onMouseMove={onMouseMove}
-            onMouseUp={onMouseUp}
+            onMouseDown={onContainerPointerDown} onTouchStart={onContainerPointerDown}
+            onMouseMove={onPointerMove}
+            onMouseUp={onPointerUp}
             onMouseLeave={() => { setDragging(null); setIsPainting(false); }}>
             <img ref={imgRef} src={src} alt="편집" className="cropper-img"
               style={{ transform: `rotate(${rotation}deg)` }} draggable={false}
@@ -273,12 +289,12 @@ function ImageCropper({ src, onDone, onCancel }: { src: string; onDone: (origina
                 width: crop.w / 100 * ir.width,
                 height: crop.h / 100 * ir.height,
                 cursor: "move", zIndex: 4,
-              }} onMouseDown={e => onCropMouseDown(e, "move")}>
+              }} onMouseDown={e => onCropPointerDown(e, "move")} onTouchStart={e => onCropPointerDown(e, "move")}>
                 <div style={{ position: "absolute", inset: 0, border: "2px solid #34d399", pointerEvents: "none" }} />
-                <div style={{ ...H, left: 0, top: 0, transform: "translate(-50%,-50%)" }} onMouseDown={e => onCropMouseDown(e, "tl")} />
-                <div style={{ ...H, right: 0, top: 0, transform: "translate(50%,-50%)" }} onMouseDown={e => onCropMouseDown(e, "tr")} />
-                <div style={{ ...H, left: 0, bottom: 0, transform: "translate(-50%,50%)" }} onMouseDown={e => onCropMouseDown(e, "bl")} />
-                <div style={{ ...H, right: 0, bottom: 0, transform: "translate(50%,50%)" }} onMouseDown={e => onCropMouseDown(e, "br")} />
+                <div style={{ ...H, left: 0, top: 0, transform: "translate(-50%,-50%)" }} onMouseDown={e => onCropPointerDown(e, "tl")} onTouchStart={e => onCropPointerDown(e, "tl")} />
+                <div style={{ ...H, right: 0, top: 0, transform: "translate(50%,-50%)" }} onMouseDown={e => onCropPointerDown(e, "tr")} onTouchStart={e => onCropPointerDown(e, "tr")} />
+                <div style={{ ...H, left: 0, bottom: 0, transform: "translate(-50%,50%)" }} onMouseDown={e => onCropPointerDown(e, "bl")} onTouchStart={e => onCropPointerDown(e, "bl")} />
+                <div style={{ ...H, right: 0, bottom: 0, transform: "translate(50%,50%)" }} onMouseDown={e => onCropPointerDown(e, "br")} onTouchStart={e => onCropPointerDown(e, "br")} />
               </div>
             )}
           </div>
@@ -888,7 +904,7 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
             onDragOver={e => { e.preventDefault(); dropRef.current?.classList.add("drag-over"); }}
             onDragLeave={() => dropRef.current?.classList.remove("drag-over")}
             onDrop={e => { e.preventDefault(); dropRef.current?.classList.remove("drag-over"); handleFile(e.dataTransfer.files[0]); }}>
-            {image ? <img src={image} alt="미리보기" /> : <div className="drop-placeholder"><div className="drop-icon">🖼️</div><div className="drop-label">칠판 사진을 업로드하세요</div><div className="drop-sub">drag & drop · 클릭 · Ctrl+V 붙여넣기</div></div>}
+            {image ? <img src={image} alt="미리보기" /> : <div className="drop-placeholder"><div className="drop-icon">🖼️</div><div className="drop-label">칠판 사진을 업로드하세요</div><div className="drop-sub">클릭하여 선택 · drag & drop · Ctrl+V</div></div>}
           </div>
           <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => handleFile(e.target.files?.[0])} />
           <div style={{ display: "flex", gap: "0.5rem" }}>

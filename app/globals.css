@@ -541,3 +541,12 @@ select.login-input option { background: #13131a; color: #e8e4d9; }
   display: flex; align-items: center; justify-content: center;
 }
 .reset-img-btn:hover { background: rgba(255,107,107,0.2); border-color: rgba(255,107,107,0.5); }
+
+/* ── 모바일 터치 최적화 ── */
+.cropper-container { touch-action: none; }
+.cropper-modal { max-height: 95vh; }
+@media (max-width: 768px) {
+  .cropper-modal { width: 95vw; }
+  .cropper-body { padding: 0.75rem 1rem; }
+  .cropper-container { aspect-ratio: 3/2; }
+}
