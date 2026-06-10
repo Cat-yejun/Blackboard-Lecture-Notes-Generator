@@ -752,6 +752,8 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
   const [showUnsavedModal, setShowUnsavedModal] = useState(false);
   const [showCropper, setShowCropper] = useState(false);
   const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<string[]>([]); // 대기 중인 이미지 dataUrl 목록
+  const [showCropChoice, setShowCropChoice] = useState(false);
   const today = new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\. /g, "-").replace(".", "");
 
   useEffect(() => {
@@ -788,6 +790,25 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
     reader.readAsDataURL(file);
   }, []);
 
+  // 여러 파일 처리
+  const handleFiles = useCallback((files: FileList | File[]) => {
+    const arr = Array.from(files).filter(f =>
+      f.type.startsWith("image/") && !f.type.includes("heic") && !f.name?.toLowerCase().endsWith(".heic")
+    );
+    if (arr.length === 0) return;
+    if (arr.length === 1) { handleFile(arr[0]); return; }
+    // 여러 장: 먼저 모두 읽어서 dataUrl로 변환
+    setError(null);
+    Promise.all(arr.map(f => new Promise<string>(resolve => {
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target!.result as string);
+      reader.readAsDataURL(f);
+    }))).then(urls => {
+      setPendingFiles(urls);
+      setShowCropChoice(true);
+    });
+  }, [handleFile]);
+
   // 클립보드 붙여넣기 (handleFile 선언 이후)
   useEffect(() => {
     const handler = (e: ClipboardEvent) => {
@@ -806,10 +827,38 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
   }, [handleFile]);
 
   const handleCropDone = (original: string, masked: string) => {
-    setImage(original); // 썸네일/사진보기용: 원본
-    setImageBase64({ data: masked.split(",")[1], mediaType: "image/jpeg" }); // AI 분석용: 마스크 적용본
+    setImage(original);
+    setImageBase64({ data: masked.split(",")[1], mediaType: "image/jpeg" });
     setShowCropper(false);
     setCropSrc(null);
+    // 다음 대기 파일 처리
+    if (pendingFiles.length > 0) {
+      const [next, ...rest] = pendingFiles;
+      setPendingFiles(rest);
+      setTimeout(() => { setCropSrc(next); setShowCropper(true); }, 100);
+    }
+  };
+
+  // 크롭 없이 여러 장 바로 추가 (분석 큐)
+  const addAllWithoutCrop = async (urls: string[]) => {
+    setShowCropChoice(false);
+    setPendingFiles([]);
+    setError(null);
+    for (const url of urls) {
+      setImage(url);
+      setImageBase64({ data: url.split(",")[1], mediaType: "image/jpeg" });
+      await new Promise(r => setTimeout(r, 50));
+    }
+  };
+
+  // 크롭 포함 여러 장 처리 시작
+  const startCropQueue = (urls: string[]) => {
+    setShowCropChoice(false);
+    if (urls.length === 0) return;
+    const [first, ...rest] = urls;
+    setPendingFiles(rest);
+    setCropSrc(first);
+    setShowCropper(true);
   };
 
   const analyze = async () => {
@@ -913,7 +962,30 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
   return (
     <div className="app">
       {showPdfOptions && <PdfOptionsModal onExport={exportPDF} onClose={() => setShowPdfOptions(false)} />}
-      {showCropper && cropSrc && <ImageCropper src={cropSrc} onDone={handleCropDone} onCancel={() => { setShowCropper(false); setCropSrc(null); }} />}
+      {showCropper && cropSrc && <ImageCropper src={cropSrc} onDone={handleCropDone} onCancel={() => { setShowCropper(false); setCropSrc(null); setPendingFiles([]); }} />}
+
+      {showCropChoice && pendingFiles.length > 0 && (
+        <div className="modal-overlay" onClick={() => {}}>
+          <div className="save-modal" onClick={e => e.stopPropagation()}>
+            <div className="sessions-header">
+              <span>🖼️ 사진 {pendingFiles.length}장 업로드</span>
+              <button className="modal-close" onClick={() => { setShowCropChoice(false); setPendingFiles([]); }}>✕</button>
+            </div>
+            <div style={{ padding: "1.25rem 1.5rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              {/* 미리보기 썸네일 */}
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                {pendingFiles.slice(0, 6).map((url, i) => (
+                  <img key={i} src={url} style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)" }} />
+                ))}
+                {pendingFiles.length > 6 && <div style={{ width: 60, height: 60, borderRadius: 8, background: "rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.8rem", color: "rgba(232,228,217,0.5)" }}>+{pendingFiles.length - 6}</div>}
+              </div>
+              <p style={{ fontSize: "0.85rem", color: "rgba(232,228,217,0.6)", lineHeight: 1.6 }}>각 사진을 크롭/편집할까요?</p>
+              <button className="login-btn" onClick={() => startCropQueue(pendingFiles)}>✂️ 순서대로 크롭하기</button>
+              <button className="export-btn" style={{ textAlign: "center", padding: "0.75rem" }} onClick={() => addAllWithoutCrop(pendingFiles)}>⚡ 크롭 없이 바로 추가</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showUnsavedModal && (
         <div className="modal-overlay" onClick={() => setShowUnsavedModal(false)}>
@@ -970,14 +1042,19 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
 
       <main className="main">
         <div className="left-panel">
+          {pendingFiles.length > 0 && !showCropper && (
+            <div style={{ padding: "0.5rem 0.75rem", background: "rgba(52,211,153,0.08)", borderRadius: 10, fontSize: "0.78rem", color: "#34d399", fontFamily: "JetBrains Mono, monospace", textAlign: "center" }}>
+              크롭 대기 중: {pendingFiles.length}장 남음
+            </div>
+          )}
           <div ref={dropRef} className="drop-zone"
             onClick={() => fileRef.current?.click()}
             onDragOver={e => { e.preventDefault(); dropRef.current?.classList.add("drag-over"); }}
             onDragLeave={() => dropRef.current?.classList.remove("drag-over")}
-            onDrop={e => { e.preventDefault(); dropRef.current?.classList.remove("drag-over"); handleFile(e.dataTransfer.files[0]); }}>
-            {image ? <img src={image} alt="미리보기" /> : <div className="drop-placeholder"><div className="drop-icon">🖼️</div><div className="drop-label">칠판 사진을 업로드하세요</div><div className="drop-sub">클릭하여 선택 · drag & drop · Ctrl+V</div></div>}
+            onDrop={e => { e.preventDefault(); dropRef.current?.classList.remove("drag-over"); handleFiles(e.dataTransfer.files); }}>
+            {image ? <img src={image} alt="미리보기" /> : <div className="drop-placeholder"><div className="drop-icon">🖼️</div><div className="drop-label">칠판 사진을 업로드하세요</div><div className="drop-sub">클릭 · drag & drop · Ctrl+V · 여러 장 가능</div></div>}
           </div>
-          <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => handleFile(e.target.files?.[0])} />
+          <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => e.target.files && handleFiles(e.target.files)} />
           <div style={{ display: "flex", gap: "0.5rem" }}>
             <button className="analyze-btn" style={{ flex: 1 }} onClick={analyze} disabled={!imageBase64 || loading}>
               {loading ? <><div className="spinner" />분석 중...</> : <>✨ 필기에 추가</>}
