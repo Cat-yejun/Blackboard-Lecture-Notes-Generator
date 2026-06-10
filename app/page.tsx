@@ -826,28 +826,61 @@ function EditorScreen({ user, session, folders, onBack, onSaved }: { user: User;
     return () => window.removeEventListener("paste", handler);
   }, [handleFile]);
 
-  const handleCropDone = (original: string, masked: string) => {
-    setImage(original);
-    setImageBase64({ data: masked.split(",")[1], mediaType: "image/jpeg" });
+  const handleCropDone = async (original: string, masked: string) => {
     setShowCropper(false);
     setCropSrc(null);
-    // 다음 대기 파일 처리
+
     if (pendingFiles.length > 0) {
+      // 여러 장 크롭 중 → 바로 분석하고 다음 사진으로
+      setLoading(true);
+      try {
+        const section = await analyzeOne(original, masked.split(",")[1]);
+        setSections(prev => [...prev, section]);
+      } catch (e: unknown) {
+        setError(`분석 오류: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        setLoading(false);
+      }
       const [next, ...rest] = pendingFiles;
       setPendingFiles(rest);
       setTimeout(() => { setCropSrc(next); setShowCropper(true); }, 100);
+    } else {
+      // 단일 사진 크롭 → 기존처럼 미리보기 세팅 후 사용자가 분석 버튼 누름
+      setImage(original);
+      setImageBase64({ data: masked.split(",")[1], mediaType: "image/jpeg" });
     }
   };
 
   // 크롭 없이 여러 장 바로 추가 (분석 큐)
+  const analyzeOne = async (imageUrl: string, imageData: string) => {
+    const res = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageData, mediaType: "image/jpeg" }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `오류 ${res.status}`);
+    const [main, sum] = (data.text as string).split("---SUMMARY---");
+    return { id: Date.now().toString() + Math.random(), latex: main.trim(), summary: sum?.trim() || "", imageUrl, createdAt: new Date() };
+  };
+
   const addAllWithoutCrop = async (urls: string[]) => {
     setShowCropChoice(false);
     setPendingFiles([]);
     setError(null);
-    for (const url of urls) {
-      setImage(url);
-      setImageBase64({ data: url.split(",")[1], mediaType: "image/jpeg" });
-      await new Promise(r => setTimeout(r, 50));
+    setLoading(true);
+    try {
+      for (const url of urls) {
+        const section = await analyzeOne(url, url.split(",")[1]);
+        setSections(prev => [...prev, section]);
+      }
+    } catch (e: unknown) {
+      setError(`분석 오류: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setLoading(false);
+      setImage(null);
+      setImageBase64(null);
+      if (fileRef.current) fileRef.current.value = "";
     }
   };
 
